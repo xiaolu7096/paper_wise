@@ -7,7 +7,15 @@ import {
   type PDFPageProxy,
 } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import "./pdf-text-layer.css";
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -51,25 +59,29 @@ export function backingStoreCrop(
   };
 }
 
-function PageCanvas({ page, scale, canvasRef }: { page: PDFPageProxy; scale: number; canvasRef: React.RefObject<HTMLCanvasElement | null> }) {
+type PageViewport = ReturnType<PDFPageProxy["getViewport"]>;
+type PageTextContent = Awaited<ReturnType<PDFPageProxy["getTextContent"]>>;
+
+function PageCanvas({ page, viewport, canvasRef }: { page: PDFPageProxy; viewport: PageViewport; canvasRef: React.RefObject<HTMLCanvasElement | null> }) {
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const viewport = page.getViewport({ scale });
     const outputScale = window.devicePixelRatio || 1;
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    canvas.width = Math.floor(viewport.width * outputScale);
-    canvas.height = Math.floor(viewport.height * outputScale);
-    canvas.style.width = `${Math.floor(viewport.width)}px`;
-    canvas.style.height = `${Math.floor(viewport.height)}px`;
+    canvas.width = Math.round(viewport.width * outputScale);
+    canvas.height = Math.round(viewport.height * outputScale);
+    canvas.style.width = `${viewport.width}px`;
+    canvas.style.height = `${viewport.height}px`;
+    const scaleX = canvas.width / viewport.width;
+    const scaleY = canvas.height / viewport.height;
     const renderTask = page.render({
       canvas,
       canvasContext: context,
       viewport,
-      transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
+      transform: scaleX === 1 && scaleY === 1 ? undefined : [scaleX, 0, 0, scaleY, 0, 0],
     });
 
     void renderTask.promise.catch((error: unknown) => {
@@ -78,7 +90,7 @@ function PageCanvas({ page, scale, canvasRef }: { page: PDFPageProxy; scale: num
       }
     });
     return () => renderTask.cancel();
-  }, [page, scale]);
+  }, [page, viewport]);
 
   return <canvas ref={canvasRef} aria-label={`PDF page ${page.pageNumber}`} />;
 }
@@ -92,20 +104,25 @@ function PdfPage({ document, pageNumber, scale, onTextSelection, regionMode, onR
   onRegionSelection?: (selection: RegionSelection) => void;
 }) {
   const [page, setPage] = useState<PDFPageProxy | null>(null);
+  const [textContent, setTextContent] = useState<PageTextContent | null>(null);
   const [plainText, setPlainText] = useState("");
   const textLayerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const [draft, setDraft] = useState<[number, number, number, number] | null>(null);
+  const viewport = useMemo(() => page?.getViewport({ scale }) ?? null, [page, scale]);
 
   useEffect(() => {
     let active = true;
     setPage(null);
+    setTextContent(null);
+    setPlainText("");
     void document.getPage(pageNumber).then((loadedPage) => {
       if (active) {
         setPage(loadedPage);
         void loadedPage.getTextContent().then((content) => {
           if (active) {
+            setTextContent(content);
             setPlainText(content.items.map((item) => "str" in item ? item.str : "").join(" "));
           }
         });
@@ -118,19 +135,16 @@ function PdfPage({ document, pageNumber, scale, onTextSelection, regionMode, onR
 
   useEffect(() => {
     const container = textLayerRef.current;
-    if (!page || !container) return;
+    if (!textContent || !viewport || !container) return;
     container.replaceChildren();
-    let layer: TextLayer | null = null;
-    void page.getTextContent().then((content) => {
-      layer = new TextLayer({
-        textContentSource: content,
-        container,
-        viewport: page.getViewport({ scale }),
-      });
-      return layer.render();
+    const layer = new TextLayer({
+      textContentSource: textContent,
+      container,
+      viewport,
     });
-    return () => layer?.cancel();
-  }, [page, scale]);
+    void layer.render();
+    return () => layer.cancel();
+  }, [textContent, viewport]);
 
   const captureSelection = () => {
     if (regionMode) return;
@@ -208,17 +222,25 @@ function PdfPage({ document, pageNumber, scale, onTextSelection, regionMode, onR
       if (image) onRegionSelection?.({
         page: pageNumber,
         bbox,
-        viewportRotation: page.getViewport({ scale }).rotation,
+        viewportRotation: viewport?.rotation ?? 0,
         nearbyText,
         image,
       });
     }, "image/png");
   };
 
+  const pageStyle = viewport ? {
+    "--scale-factor": String(scale),
+    "--user-unit": String(viewport.userUnit),
+    "--total-scale-factor": "calc(var(--scale-factor) * var(--user-unit))",
+    "--scale-round-x": "0.01px",
+    "--scale-round-y": "0.01px",
+  } as CSSProperties : undefined;
+
   return (
-    <section className={`pdf-page${regionMode ? " region-mode" : ""}`} data-page-number={pageNumber} aria-label={`第 ${pageNumber} 页`} onMouseUp={captureSelection} onPointerDown={beginRegion} onPointerMove={moveRegion} onPointerUp={finishRegion}>
-      {page ? <PageCanvas page={page} scale={scale} canvasRef={canvasRef} /> : <div className="page-loading" />}
-      {page && <div ref={textLayerRef} className="text-layer" />}
+    <section className={`pdf-page${regionMode ? " region-mode" : ""}`} style={pageStyle} data-page-number={pageNumber} aria-label={`第 ${pageNumber} 页`} onMouseUp={captureSelection} onPointerDown={beginRegion} onPointerMove={moveRegion} onPointerUp={finishRegion}>
+      {page && viewport ? <PageCanvas page={page} viewport={viewport} canvasRef={canvasRef} /> : <div className="page-loading" />}
+      {page && <div ref={textLayerRef} className="textLayer" />}
       {draft && <div className="region-draft" style={{ left: `${draft[0] * 100}%`, top: `${draft[1] * 100}%`, width: `${(draft[2] - draft[0]) * 100}%`, height: `${(draft[3] - draft[1]) * 100}%` }} />}
     </section>
   );

@@ -63,11 +63,9 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 .pdf-pages { flex: 1; overflow: auto; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 22px; scroll-behavior: smooth; }
 .pdf-page { position: relative; flex: 0 0 auto; background: white; box-shadow: 0 3px 14px rgb(24 31 25 / 14%); line-height: 0; }
 .pdf-page canvas { display: block; }
-.text-layer { position: absolute; inset: 0; overflow: hidden; line-height: 1; opacity: 1; transform-origin: 0 0; }
-.text-layer span, .text-layer br { position: absolute; color: transparent; white-space: pre; cursor: text; transform-origin: 0 0; }
-.text-layer ::selection { background: rgb(60 125 91 / 32%); }
+.textLayer ::selection { background: rgb(60 125 91 / 32%); }
 .pdf-page.region-mode { touch-action: none; cursor: crosshair; }
-.pdf-page.region-mode .text-layer { pointer-events: none; }
+.pdf-page.region-mode .textLayer { pointer-events: none; }
 .region-draft { position: absolute; z-index: 3; border: 2px solid #2f6b4f; background: rgb(47 107 79 / 14%); pointer-events: none; }
 .page-loading { width: 612px; height: 792px; max-width: 75vw; background: #f2f3f0; }
 .error-text { color: #9b3934; }
