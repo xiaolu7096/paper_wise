@@ -1,0 +1,35 @@
+# Python
+backend/.venv/
+backend/**/__pycache__/
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/.mypy_cache/
+backend/.coverage
+backend/htmlcov/
+backend/*.egg-info/
+*.py[cod]
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+
+# Local runtime data and secrets
+data/*
+!data/.gitkeep
+.env
+.env.local
+*.db
+*.db-shm
+*.db-wal
+
+# Generated contract
+contracts/openapi.json
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

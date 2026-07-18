@@ -1,0 +1,228 @@
+import { BookOpen, FileText, LoaderCircle, Settings, Upload } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+
+import {
+  listPapers,
+  getPaper,
+  getTask,
+  paperFileUrl,
+  PaperwiseApiError,
+  type Paper,
+  retryPaper,
+  uploadPaper,
+} from "../api/client";
+import { PdfReader } from "../features/reader/PdfReader";
+import { ChatPanel } from "../features/chat/ChatPanel";
+import { SettingsPanel } from "../features/settings/SettingsPanel";
+import { TextExplanationPanel } from "../features/annotations/TextExplanationPanel";
+import type { TextSelection } from "../features/reader/PdfReader";
+import type { RegionSelection } from "../features/reader/PdfReader";
+import { RegionExplanationPanel } from "../features/annotations/RegionExplanationPanel";
+import { NotesPanel } from "../features/annotations/NotesPanel";
+import { CardPanel } from "../features/cards/CardPanel";
+
+function statusLabel(status: Paper["status"]): string {
+  return {
+    queued: "等待处理",
+    processing: "处理中",
+    ready: "已就绪",
+    failed: "处理失败",
+  }[status];
+}
+
+export function App() {
+  const [papers, setPapers] = useState<Paper[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [taskProgress, setTaskProgress] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sideTab, setSideTab] = useState<"library" | "chat" | "explain" | "notes" | "card">("library");
+  const [targetPage, setTargetPage] = useState<number | null>(null);
+  const [textSelection, setTextSelection] = useState<TextSelection | null>(null);
+  const [regionSelection, setRegionSelection] = useState<RegionSelection | null>(null);
+
+  useEffect(() => {
+    setTextSelection(null);
+    setRegionSelection(null);
+  }, [selectedId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void listPapers(controller.signal)
+      .then((items) => {
+        setPapers(items);
+        setSelectedId((current) =>
+          current && items.some((paper) => paper.paper_id === current)
+            ? current
+            : (items[0]?.paper_id ?? null),
+        );
+      })
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setError(reason instanceof Error ? reason.message : "论文列表加载失败");
+        }
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, []);
+
+  const selectedPaper = papers.find((paper) => paper.paper_id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (!selectedPaper || !["queued", "processing"].includes(selectedPaper.status)) {
+      setTaskProgress(null);
+      return;
+    }
+    const controller = new AbortController();
+    const refresh = async () => {
+      try {
+        if (activeTaskId) {
+          const task = await getTask(activeTaskId, controller.signal);
+          setTaskProgress(task.progress);
+          if (["succeeded", "failed"].includes(task.status)) setActiveTaskId(null);
+        }
+        const paper = await getPaper(selectedPaper.paper_id, controller.signal);
+        setPapers((items) => items.map((item) => item.paper_id === paper.paper_id ? paper : item));
+      } catch (reason) {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setError(reason instanceof Error ? reason.message : "任务状态刷新失败");
+        }
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 1000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [activeTaskId, selectedPaper?.paper_id, selectedPaper?.status]);
+
+  const handleUpload = async (file: File) => {
+    setUploading(true);
+    setError(null);
+    try {
+      const result = await uploadPaper(file);
+      const items = await listPapers();
+      setPapers(items);
+      setSelectedId(result.paper.paper_id);
+      setActiveTaskId(result.task_id);
+    } catch (reason) {
+      setError(
+        reason instanceof PaperwiseApiError || reason instanceof Error
+          ? reason.message
+          : "PDF 上传失败",
+      );
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleRetry = async () => {
+    if (!selectedPaper) return;
+    setError(null);
+    try {
+      const result = await retryPaper(selectedPaper.paper_id);
+      setActiveTaskId(result.task_id);
+      const paper = await getPaper(selectedPaper.paper_id);
+      setPapers((items) => items.map((item) => item.paper_id === paper.paper_id ? paper : item));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "重试失败");
+    }
+  };
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand"><BookOpen size={22} /><span>PaperWise</span></div>
+        <div className="topbar-actions"><div className="topbar-status">{selectedPaper?.filename ?? "本地论文工作台"}</div><button type="button" className="icon-button" title="设置" aria-label="打开设置" onClick={() => setSettingsOpen(true)}><Settings size={18} /></button></div>
+      </header>
+      <main className="workspace">
+        <section className="reader-region" aria-label="PDF 阅读器">
+          {selectedPaper ? (
+            <PdfReader
+              key={selectedPaper.paper_id}
+              fileUrl={paperFileUrl(selectedPaper.paper_id)}
+              filename={selectedPaper.filename}
+              targetPage={targetPage}
+              onTextSelection={(selection) => {
+                setTextSelection(selection);
+                if (selection) {
+                  setRegionSelection(null);
+                  setSideTab("explain");
+                }
+              }}
+              onRegionSelection={(selection) => {
+                setRegionSelection(selection);
+                setTextSelection(null);
+                setSideTab("explain");
+              }}
+            />
+          ) : (
+            <div className="empty-reader">
+              <FileText size={40} strokeWidth={1.5} />
+              <p>{loading ? "正在读取本地论文…" : "尚未添加论文"}</p>
+            </div>
+          )}
+        </section>
+        <aside className="library-panel" aria-label="论文库">
+          <div className="side-tabs"><button type="button" className={sideTab === "library" ? "active" : ""} onClick={() => setSideTab("library")}>论文库</button><button type="button" className={sideTab === "chat" ? "active" : ""} onClick={() => setSideTab("chat")}>问答</button><button type="button" className={sideTab === "explain" ? "active" : ""} onClick={() => setSideTab("explain")}>解释</button><button type="button" className={sideTab === "notes" ? "active" : ""} onClick={() => setSideTab("notes")}>笔记</button><button type="button" className={sideTab === "card" ? "active" : ""} onClick={() => setSideTab("card")}>速读</button></div>
+          {sideTab === "library" ? <>
+          <div className="panel-heading">
+            <div><span className="eyebrow">LIBRARY</span><h1>论文库</h1></div>
+            <button type="button" className="upload-button" onClick={() => fileInputRef.current?.click()} disabled={uploading} aria-label="上传 PDF">
+              {uploading ? <LoaderCircle className="spin" size={18} /> : <Upload size={18} />}
+              <span>{uploading ? "上传中" : "上传"}</span>
+            </button>
+            <input
+              ref={fileInputRef}
+              className="sr-only"
+              type="file"
+              accept="application/pdf,.pdf"
+              aria-label="选择 PDF 文件"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void handleUpload(file);
+              }}
+            />
+          </div>
+          {error && <div role="alert" className="error-banner">{error}</div>}
+          {selectedPaper && ["queued", "processing"].includes(selectedPaper.status) && (
+            <div className="task-strip">
+              <span>{statusLabel(selectedPaper.status)}</span>
+              <span>{taskProgress === null ? "—" : `${taskProgress}%`}</span>
+            </div>
+          )}
+          {selectedPaper?.status === "failed" && (
+            <button type="button" className="retry-button" onClick={() => void handleRetry()}>
+              重新处理
+            </button>
+          )}
+          <div className="paper-list">
+            {papers.map((paper) => (
+              <button
+                type="button"
+                key={paper.paper_id}
+                className={`paper-item${paper.paper_id === selectedId ? " selected" : ""}`}
+                onClick={() => setSelectedId(paper.paper_id)}
+              >
+                <FileText size={18} />
+                <span className="paper-copy">
+                  <strong>{paper.filename}</strong>
+                  <span>{paper.page_count} 页</span>
+                </span>
+                <span className={`status-dot ${paper.status}`} title={statusLabel(paper.status)} />
+              </button>
+            ))}
+          </div>
+          </> : sideTab === "chat" ? <ChatPanel paper={selectedPaper} onNavigatePage={(page) => { setTargetPage(page); }} /> : sideTab === "notes" ? <NotesPanel paper={selectedPaper} /> : sideTab === "card" ? <CardPanel paper={selectedPaper} onNavigatePage={(page) => setTargetPage(page)} /> : regionSelection && selectedPaper ? <RegionExplanationPanel key={`${selectedId}:${regionSelection.page}:${regionSelection.bbox.join(",")}`} paper={selectedPaper} selection={regionSelection} /> : <TextExplanationPanel key={`${selectedId ?? "none"}:${textSelection?.selectedText ?? ""}`} paper={selectedPaper} selection={textSelection} />}
+        </aside>
+      </main>
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+    </div>
+  );
+}
