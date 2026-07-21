@@ -6,6 +6,7 @@ EXPECTED_OPERATIONS = {
     ("get", "/api/papers"),
     ("post", "/api/papers"),
     ("get", "/api/papers/{paper_id}"),
+    ("delete", "/api/papers/{paper_id}"),
     ("get", "/api/papers/{paper_id}/file"),
     ("head", "/api/papers/{paper_id}/file"),
     ("post", "/api/papers/{paper_id}/retry"),
@@ -26,7 +27,7 @@ EXPECTED_OPERATIONS = {
 }
 
 
-def test_openapi_contains_exactly_the_21_documented_operations() -> None:
+def test_openapi_contains_exactly_the_22_documented_operations() -> None:
     paths = create_app().openapi()["paths"]
     actual = {
         (method, path)
@@ -71,6 +72,13 @@ def test_paper_routes_declare_required_status_codes() -> None:
         "404",
         "422",
     }
+    assert set(paths["/api/papers/{paper_id}"]["delete"]["responses"]) == {
+        "204",
+        "404",
+        "409",
+        "422",
+        "500",
+    }
     assert set(paths["/api/papers/{paper_id}/file"]["get"]["responses"]) == {
         "200",
         "206",
@@ -92,6 +100,7 @@ def test_declared_paper_errors_use_unified_schema() -> None:
     operations = [
         paths["/api/papers"]["post"],
         paths["/api/papers/{paper_id}"]["get"],
+        paths["/api/papers/{paper_id}"]["delete"],
         paths["/api/papers/{paper_id}/file"]["get"],
     ]
 

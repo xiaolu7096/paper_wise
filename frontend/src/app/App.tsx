@@ -1,8 +1,9 @@
-import { BookOpen, FileText, LoaderCircle, Settings, Upload } from "lucide-react";
+import { BookOpen, FileText, LoaderCircle, Settings, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
   listPapers,
+  deletePaper,
   getPaper,
   getTask,
   paperFileUrl,
@@ -38,6 +39,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [taskProgress, setTaskProgress] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const deletingIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sideTab, setSideTab] = useState<"library" | "chat" | "explain" | "notes" | "card">("library");
@@ -88,6 +91,11 @@ export function App() {
         const paper = await getPaper(selectedPaper.paper_id, controller.signal);
         setPapers((items) => items.map((item) => item.paper_id === paper.paper_id ? paper : item));
       } catch (reason) {
+        if (
+          reason instanceof PaperwiseApiError
+          && reason.code === "PAPER_NOT_FOUND"
+          && deletingIdRef.current === selectedPaper.paper_id
+        ) return;
         if (!(reason instanceof DOMException && reason.name === "AbortError")) {
           setError(reason instanceof Error ? reason.message : "任务状态刷新失败");
         }
@@ -132,6 +140,38 @@ export function App() {
       setPapers((items) => items.map((item) => item.paper_id === paper.paper_id ? paper : item));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "重试失败");
+    }
+  };
+
+  const handleDelete = async (paper: Paper) => {
+    if (!window.confirm(`确定永久删除“${paper.filename}”吗？\n\n原始 PDF、问答、速读、笔记和截图都将删除，且无法恢复。`)) return;
+    setError(null);
+    setDeletingId(paper.paper_id);
+    deletingIdRef.current = paper.paper_id;
+    let deleted = false;
+    try {
+      await deletePaper(paper.paper_id);
+      deleted = true;
+    } catch (reason) {
+      if (reason instanceof PaperwiseApiError && reason.code === "PAPER_NOT_FOUND") {
+        deleted = true;
+      } else {
+        setError(reason instanceof Error ? reason.message : "论文删除失败");
+      }
+    } finally {
+      deletingIdRef.current = null;
+      setDeletingId(null);
+    }
+    if (!deleted) return;
+    const remaining = papers.filter((item) => item.paper_id !== paper.paper_id);
+    setPapers(remaining);
+    if (selectedId === paper.paper_id) {
+      setSelectedId(remaining[0]?.paper_id ?? null);
+      setActiveTaskId(null);
+      setTaskProgress(null);
+      setTargetPage(null);
+      setTextSelection(null);
+      setRegionSelection(null);
     }
   };
 
@@ -204,19 +244,31 @@ export function App() {
           )}
           <div className="paper-list">
             {papers.map((paper) => (
-              <button
-                type="button"
-                key={paper.paper_id}
-                className={`paper-item${paper.paper_id === selectedId ? " selected" : ""}`}
-                onClick={() => setSelectedId(paper.paper_id)}
-              >
-                <FileText size={18} />
-                <span className="paper-copy">
-                  <strong>{paper.filename}</strong>
-                  <span>{paper.page_count} 页</span>
-                </span>
-                <span className={`status-dot ${paper.status}`} title={statusLabel(paper.status)} />
-              </button>
+              <div className="paper-row" key={paper.paper_id}>
+                <button
+                  type="button"
+                  className={`paper-item${paper.paper_id === selectedId ? " selected" : ""}`}
+                  aria-label={`打开 ${paper.filename}`}
+                  onClick={() => setSelectedId(paper.paper_id)}
+                >
+                  <FileText size={18} />
+                  <span className="paper-copy">
+                    <strong>{paper.filename}</strong>
+                    <span>{paper.page_count} 页</span>
+                  </span>
+                  <span className={`status-dot ${paper.status}`} title={statusLabel(paper.status)} />
+                </button>
+                <button
+                  type="button"
+                  className="paper-delete"
+                  title={`删除 ${paper.filename}`}
+                  aria-label={`删除 ${paper.filename}`}
+                  disabled={deletingId === paper.paper_id}
+                  onClick={() => void handleDelete(paper)}
+                >
+                  {deletingId === paper.paper_id ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
+                </button>
+              </div>
             ))}
           </div>
           </> : sideTab === "chat" ? <ChatPanel paper={selectedPaper} onNavigatePage={(page) => { setTargetPage(page); }} /> : sideTab === "notes" ? <NotesPanel paper={selectedPaper} /> : sideTab === "card" ? <CardPanel paper={selectedPaper} onNavigatePage={(page) => setTargetPage(page)} /> : regionSelection && selectedPaper ? <RegionExplanationPanel key={`${selectedId}:${regionSelection.page}:${regionSelection.bbox.join(",")}`} paper={selectedPaper} selection={regionSelection} /> : <TextExplanationPanel key={`${selectedId ?? "none"}:${textSelection?.selectedText ?? ""}`} paper={selectedPaper} selection={textSelection} />}

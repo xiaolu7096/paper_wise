@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import StringConstraints
 from starlette.concurrency import run_in_threadpool
 
+from app.api.errors import AppError
 from app.api.schemas import (
     ErrorResponse,
     Paper,
@@ -60,6 +61,23 @@ async def list_papers(request: Request) -> PaperListResponse:
 @router.get("/{paper_id}", response_model=Paper, responses={404: ERROR, 422: ERROR})
 async def get_paper(request: Request, paper_id: PaperId) -> Paper:
     return await run_in_threadpool(service(request).get, paper_id)
+
+
+@router.delete(
+    "/{paper_id}",
+    status_code=204,
+    responses={204: {"description": "Paper deleted"}, 404: ERROR, 409: ERROR, 422: ERROR, 500: ERROR},
+)
+async def delete_paper(request: Request, paper_id: PaperId) -> Response:
+    if await request.body():
+        raise AppError(
+            422,
+            "VALIDATION_ERROR",
+            "Request validation failed",
+            {"fields": [{"path": "body", "reason": "Request body must be empty"}]},
+        )
+    await run_in_threadpool(service(request).delete, paper_id)
+    return Response(status_code=204)
 
 
 @router.get(

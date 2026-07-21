@@ -18,6 +18,7 @@ export default defineConfig({
         ...process.env,
         PAPERWISE_DATA_DIR: resolve(tmpdir(), `paperwise-e2e-${process.pid}`),
         PAPERWISE_FRONTEND_ORIGIN: "http://127.0.0.1:15173",
+        PAPERWISE_JOBS_ENABLED: "false",
       },
     },
     {

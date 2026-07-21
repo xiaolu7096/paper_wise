@@ -13,10 +13,11 @@ from app.api.routes import router
 from app.core.config import Settings
 from app.db.database import Database
 from app.jobs.ingest import IngestPipeline, JobRunner
+from app.services.assets import AssetService
 from app.services.embeddings import Embedder, SentenceTransformerEmbedder
 from app.services.model_client import ChatCompletionsClient
-from app.services.assets import AssetService
 from app.services.model_settings import ModelSettingsService
+from app.services.papers import PaperService
 
 logger = logging.getLogger("paperwise.requests")
 
@@ -46,6 +47,7 @@ def create_app(
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         active_settings.data_dir.mkdir(parents=True, exist_ok=True)
         database.migrate()
+        PaperService(database, active_settings.data_dir).cleanup_pending_deletes()
         AssetService(
             database,
             active_settings.data_dir,

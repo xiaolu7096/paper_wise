@@ -1,6 +1,8 @@
 import errno
 import hashlib
+import logging
 import os
+import shutil
 import sqlite3
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -18,6 +20,8 @@ from app.db.database import Database
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 COPY_CHUNK_BYTES = 1024 * 1024
+DELETE_PREFIX = "paper-delete-"
+logger = logging.getLogger("paperwise.storage")
 
 
 @dataclass(frozen=True)
@@ -157,6 +161,78 @@ class PaperService:
         if not path.is_file():
             raise AppError(410, "PAPER_FILE_MISSING", "The original PDF is missing")
         return PaperFile(path=path, filename=paper.filename, size=path.stat().st_size)
+
+    def delete(self, paper_id: str) -> None:
+        paper_dir = self.data_dir / "papers" / paper_id
+        tombstone: Path | None = None
+        try:
+            with self.database.connect() as connection:
+                with self.database.transaction(connection):
+                    row = connection.execute(
+                        "SELECT status FROM papers WHERE paper_id = ?", (paper_id,)
+                    ).fetchone()
+                    if row is None:
+                        raise AppError(404, "PAPER_NOT_FOUND", "Paper not found")
+                    if row["status"] == "processing":
+                        raise AppError(409, "PAPER_BUSY", "Paper is currently processing")
+                    if paper_dir.exists():
+                        temporary_dir = self.data_dir / "tmp"
+                        temporary_dir.mkdir(parents=True, exist_ok=True)
+                        tombstone = temporary_dir / f"{DELETE_PREFIX}{uuid4()}"
+                        try:
+                            os.replace(paper_dir, tombstone)
+                        except OSError as error:
+                            tombstone = None
+                            raise AppError(
+                                409, "PAPER_BUSY", "Paper files are currently in use"
+                            ) from error
+                    connection.execute(
+                        "DELETE FROM chunks_fts WHERE paper_id = ?", (paper_id,)
+                    )
+                    connection.execute("DELETE FROM papers WHERE paper_id = ?", (paper_id,))
+        except AppError:
+            self._restore_tombstone(tombstone, paper_dir)
+            raise
+        except Exception as error:
+            self._restore_tombstone(tombstone, paper_dir)
+            raise AppError(
+                500, "PAPER_DELETE_FAILED", "Paper could not be deleted"
+            ) from error
+
+        if tombstone is not None:
+            try:
+                self._remove_path(tombstone)
+            except OSError:
+                logger.warning("paper_delete_cleanup_deferred", extra={"path": str(tombstone)})
+
+    def cleanup_pending_deletes(self) -> None:
+        temporary_dir = self.data_dir / "tmp"
+        if not temporary_dir.is_dir():
+            return
+        for path in temporary_dir.glob(f"{DELETE_PREFIX}*"):
+            try:
+                self._remove_path(path)
+            except OSError:
+                logger.warning("paper_delete_cleanup_failed", extra={"path": str(path)})
+
+    @staticmethod
+    def _remove_path(path: Path) -> None:
+        if path.is_symlink() or path.is_file():
+            path.unlink(missing_ok=True)
+        elif path.is_dir():
+            shutil.rmtree(path)
+
+    @staticmethod
+    def _restore_tombstone(tombstone: Path | None, destination: Path) -> None:
+        if tombstone is None or not tombstone.exists():
+            return
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(tombstone, destination)
+        except OSError as error:
+            raise AppError(
+                500, "PAPER_DELETE_FAILED", "Paper deletion rollback failed"
+            ) from error
 
     def _active_task_id(self, paper_id: str) -> str | None:
         with self.database.connect() as connection:

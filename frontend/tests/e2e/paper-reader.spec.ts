@@ -55,15 +55,32 @@ test("uploads, reads, switches, and restores local papers", async ({ page }) => 
   const secondImage = await page.locator("canvas").first().evaluate((canvas) => canvas.toDataURL());
   expect(secondImage).not.toBe(firstImage);
 
-  await page.getByRole("button", { name: new RegExp(firstName) }).click();
+  await page.getByRole("button", { name: `打开 ${firstName}` }).click();
   await expect(page.locator(".reader-title")).toHaveText(firstName);
-  await page.getByRole("button", { name: new RegExp(secondName) }).click();
+  await page.getByRole("button", { name: `打开 ${secondName}` }).click();
   await expect(page.locator(".reader-title")).toHaveText(secondName);
 
   await page.reload();
-  await expect(page.getByRole("button", { name: new RegExp(firstName) })).toBeVisible();
-  await expect(page.getByRole("button", { name: new RegExp(secondName) })).toBeVisible();
+  await expect(page.getByRole("button", { name: `打开 ${firstName}` })).toBeVisible();
+  await expect(page.getByRole("button", { name: `打开 ${secondName}` })).toBeVisible();
   await expect(page.locator("canvas").first()).toBeVisible();
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: `删除 ${firstName}` }).click();
+  await expect(page.getByRole("button", { name: `打开 ${firstName}` })).toHaveCount(0);
+  await expect(page.locator(".reader-title")).toHaveText(secondName);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: `删除 ${secondName}` }).click();
+  await expect(page.getByText("尚未添加论文")).toBeVisible();
+
+  await input.setInputFiles({
+    name: firstName,
+    mimeType: "application/pdf",
+    buffer: Buffer.from(FIRST_PDF, "base64"),
+  });
+  await expect(page.locator("canvas").first()).toBeVisible();
+  await expect(page.locator(".reader-title")).toHaveText(firstName);
 });
 
 test("aligns a rotated cropped page with a non-default user unit", async ({ page }) => {

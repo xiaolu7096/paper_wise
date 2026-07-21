@@ -33,6 +33,7 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 .upload-button { height: 38px; display: inline-flex; align-items: center; gap: 7px; padding: 0 13px; border: 1px solid #245840; background: #2f6b4f; color: white; border-radius: 7px; }
 .upload-button:hover:not(:disabled) { background: #285d45; }
 .paper-list { display: flex; flex-direction: column; gap: 6px; }
+.paper-row { display: grid; grid-template-columns: minmax(0, 1fr) 32px; gap: 4px; align-items: center; }
 .paper-item { width: 100%; display: grid; grid-template-columns: 20px minmax(0, 1fr) 10px; gap: 10px; align-items: center; padding: 12px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: inherit; text-align: left; }
 .paper-item:hover { background: #ecefea; }
 .paper-item.selected { background: #e3ede7; border-color: #a9c3b3; }
@@ -40,6 +41,8 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 .paper-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .paper-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .paper-copy > span { color: #7a8179; font-size: 11px; }
+.paper-delete { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #8f504b; }
+.paper-delete:hover:not(:disabled) { background: #f4e5e3; color: #9b3934; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #8c938b; }
 .status-dot.queued { background: #b57b28; }
 .status-dot.processing { background: #4778a8; }

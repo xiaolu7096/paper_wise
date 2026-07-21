@@ -65,6 +65,13 @@ export async function getPaper(paperId: string, signal?: AbortSignal): Promise<P
   return parseResponse<Paper>(response);
 }
 
+export async function deletePaper(paperId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) await parseResponse<never>(response);
+}
+
 export async function uploadPaper(file: File): Promise<PaperUploadResponse> {
   const form = new FormData();
   form.append("file", file);

@@ -9,6 +9,7 @@ vi.mock("../api/client", async (importOriginal) => {
   return {
     ...actual,
     listPapers: vi.fn(),
+    deletePaper: vi.fn(),
     getPaper: vi.fn(),
     getTask: vi.fn(),
     retryPaper: vi.fn(),
@@ -23,7 +24,7 @@ vi.mock("../features/reader/PdfReader", () => ({
   ),
 }));
 
-import { getPaper, getTask, listPapers, uploadPaper } from "../api/client";
+import { deletePaper, getPaper, getTask, listPapers, uploadPaper } from "../api/client";
 
 const first: Paper = {
   paper_id: "a".repeat(64),
@@ -39,10 +40,15 @@ const first: Paper = {
 
 const second: Paper = { ...first, paper_id: "b".repeat(64), filename: "second.pdf" };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.mocked(deletePaper).mockResolvedValue(undefined);
   vi.mocked(getPaper).mockImplementation(async (paperId) =>
     paperId === second.paper_id ? second : first,
   );
@@ -70,7 +76,7 @@ describe("App", () => {
       "data-file-url",
       `http://test/api/papers/${first.paper_id}/file`,
     );
-    fireEvent.click(screen.getByRole("button", { name: /second.pdf/ }));
+    fireEvent.click(screen.getByRole("button", { name: "打开 second.pdf" }));
     expect(screen.getByTestId("pdf-reader")).toHaveTextContent("second.pdf");
   });
 
@@ -92,5 +98,54 @@ describe("App", () => {
     expect(await screen.findByTestId("pdf-reader")).toHaveTextContent("second.pdf");
     expect(uploadPaper).toHaveBeenCalledTimes(1);
     expect(listPapers).toHaveBeenCalledTimes(2);
+  });
+
+  it("deletes the selected paper and opens the first remaining paper", async () => {
+    vi.mocked(listPapers).mockResolvedValue([first, second]);
+    render(<App />);
+    expect(await screen.findByTestId("pdf-reader")).toHaveTextContent("first.pdf");
+
+    fireEvent.click(screen.getByRole("button", { name: "删除 first.pdf" }));
+
+    await waitFor(() => expect(deletePaper).toHaveBeenCalledWith(first.paper_id));
+    expect(screen.getByTestId("pdf-reader")).toHaveTextContent("second.pdf");
+    expect(screen.queryByRole("button", { name: "打开 first.pdf" })).not.toBeInTheDocument();
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("无法恢复"));
+  });
+
+  it("deletes a non-selected paper without switching the reader", async () => {
+    vi.mocked(listPapers).mockResolvedValue([first, second]);
+    render(<App />);
+    expect(await screen.findByTestId("pdf-reader")).toHaveTextContent("first.pdf");
+
+    fireEvent.click(screen.getByRole("button", { name: "删除 second.pdf" }));
+
+    await waitFor(() => expect(deletePaper).toHaveBeenCalledWith(second.paper_id));
+    expect(screen.getByTestId("pdf-reader")).toHaveTextContent("first.pdf");
+    expect(screen.queryByRole("button", { name: "打开 second.pdf" })).not.toBeInTheDocument();
+  });
+
+  it("does not delete when confirmation is cancelled", async () => {
+    vi.mocked(listPapers).mockResolvedValue([first]);
+    vi.mocked(window.confirm).mockReturnValue(false);
+    render(<App />);
+    await screen.findByTestId("pdf-reader");
+
+    fireEvent.click(screen.getByRole("button", { name: "删除 first.pdf" }));
+
+    expect(deletePaper).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "打开 first.pdf" })).toBeInTheDocument();
+  });
+
+  it("keeps the paper and shows an error when deletion fails", async () => {
+    vi.mocked(listPapers).mockResolvedValue([first]);
+    vi.mocked(deletePaper).mockRejectedValue(new Error("删除失败"));
+    render(<App />);
+    await screen.findByTestId("pdf-reader");
+
+    fireEvent.click(screen.getByRole("button", { name: "删除 first.pdf" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("删除失败");
+    expect(screen.getByRole("button", { name: "打开 first.pdf" })).toBeInTheDocument();
   });
 });

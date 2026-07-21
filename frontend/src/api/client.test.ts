@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { explainRegion, uploadPaper } from "./client";
+import { deletePaper, explainRegion, uploadPaper } from "./client";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -61,5 +61,24 @@ describe("explainRegion", () => {
     const init = fetchMock.mock.calls[0]?.[1];
     expect(init?.body).toBeInstanceOf(FormData);
     expect(init?.headers).toBeUndefined();
+  });
+});
+
+describe("deletePaper", () => {
+  it("sends an empty DELETE request and does not parse a 204 response", async () => {
+    const json = vi.fn();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 204,
+      json,
+    } as unknown as Response);
+
+    await deletePaper("a".repeat(64));
+
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(init?.method).toBe("DELETE");
+    expect(init?.body).toBeUndefined();
+    expect(init?.headers).toBeUndefined();
+    expect(json).not.toHaveBeenCalled();
   });
 });
