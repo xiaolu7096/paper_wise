@@ -11,6 +11,7 @@ from app.db.database import Database
 from app.services.model_client import ChatCompletionsClient
 from app.services.model_settings import ActiveModelConfig, ModelSettingsService
 from app.services.retrieval import RetrievalService
+from app.services.auth import LOCAL_USER_ID
 
 
 class ChatService:
@@ -20,11 +21,13 @@ class ChatService:
         retrieval: RetrievalService,
         model_settings: ModelSettingsService,
         client_factory: Callable[[ActiveModelConfig], ChatCompletionsClient],
+        user_id: str = LOCAL_USER_ID,
     ) -> None:
         self.database = database
         self.retrieval = retrieval
         self.model_settings = model_settings
         self.client_factory = client_factory
+        self.user_id = user_id
 
     async def chat(self, paper_id: str, question: str) -> ChatResponse:
         self._require_ready(paper_id)
@@ -66,16 +69,17 @@ class ChatService:
             with self.database.transaction(connection):
                 connection.execute(
                     """
-                    INSERT INTO messages (message_id, paper_id, role, content, created_at)
-                    VALUES (?, ?, 'user', ?, ?)
+                    INSERT INTO messages (
+                        message_id, paper_id, role, content, created_at, user_id
+                    ) VALUES (?, ?, 'user', ?, ?, ?)
                     """,
-                    (user_id, paper_id, question, user_time),
+                    (user_id, paper_id, question, user_time, self.user_id),
                 )
                 connection.execute(
                     """
                     INSERT INTO messages (
-                        message_id, paper_id, role, content, citations_json, created_at
-                    ) VALUES (?, ?, 'assistant', ?, ?, ?)
+                        message_id, paper_id, role, content, citations_json, created_at, user_id
+                    ) VALUES (?, ?, 'assistant', ?, ?, ?, ?)
                     """,
                     (
                         assistant_id,
@@ -83,6 +87,7 @@ class ChatService:
                         answer,
                         json.dumps([item.model_dump() for item in citations], ensure_ascii=False),
                         assistant_time,
+                        self.user_id,
                     ),
                 )
         return ChatResponse(
@@ -98,10 +103,10 @@ class ChatService:
             rows = connection.execute(
                 """
                 SELECT message_id, role, content, citations_json, created_at
-                FROM messages WHERE paper_id = ?
+                FROM messages WHERE paper_id = ? AND user_id = ?
                 ORDER BY created_at ASC, message_id ASC
                 """,
-                (paper_id,),
+                (paper_id, self.user_id),
             ).fetchall()
         return [
             Message(
@@ -117,12 +122,22 @@ class ChatService:
     def clear(self, paper_id: str) -> None:
         self._require_paper(paper_id)
         with self.database.connect() as connection:
-            connection.execute("DELETE FROM messages WHERE paper_id = ?", (paper_id,))
+            connection.execute(
+                "DELETE FROM messages WHERE paper_id = ? AND user_id = ?",
+                (paper_id, self.user_id),
+            )
 
     def _require_paper(self, paper_id: str) -> None:
         with self.database.connect() as connection:
             row = connection.execute(
-                "SELECT 1 FROM papers WHERE paper_id = ?", (paper_id,)
+                """
+                SELECT 1 FROM papers
+                LEFT JOIN user_papers
+                    ON user_papers.paper_id = papers.paper_id
+                    AND user_papers.user_id = ?
+                WHERE papers.paper_id = ? AND (user_papers.user_id = ? OR ? = ?)
+                """,
+                (self.user_id, paper_id, self.user_id, self.user_id, LOCAL_USER_ID),
             ).fetchone()
         if row is None:
             raise AppError(404, "PAPER_NOT_FOUND", "Paper not found")
@@ -130,7 +145,14 @@ class ChatService:
     def _require_ready(self, paper_id: str) -> None:
         with self.database.connect() as connection:
             row = connection.execute(
-                "SELECT status FROM papers WHERE paper_id = ?", (paper_id,)
+                """
+                SELECT status FROM papers
+                LEFT JOIN user_papers
+                    ON user_papers.paper_id = papers.paper_id
+                    AND user_papers.user_id = ?
+                WHERE papers.paper_id = ? AND (user_papers.user_id = ? OR ? = ?)
+                """,
+                (self.user_id, paper_id, self.user_id, self.user_id, LOCAL_USER_ID),
             ).fetchone()
         if row is None:
             raise AppError(404, "PAPER_NOT_FOUND", "Paper not found")
@@ -146,10 +168,10 @@ class ChatService:
         with self.database.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT role, content FROM messages WHERE paper_id = ?
+                SELECT role, content FROM messages WHERE paper_id = ? AND user_id = ?
                 ORDER BY created_at DESC, message_id DESC LIMIT 6
                 """,
-                (paper_id,),
+                (paper_id, self.user_id),
             ).fetchall()
         return [
             {"role": row["role"], "content": row["content"]}

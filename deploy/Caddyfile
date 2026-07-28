@@ -1,0 +1,12 @@
+{$PAPERWISE_SITE_ADDRESS:localhost:8080} {
+	encode zstd gzip
+
+	@api path /api/*
+	reverse_proxy @api backend:8000
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

@@ -1,13 +1,17 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Paper } from "../api/client";
+import type { AuthUser, Paper } from "../api/client";
 import { App } from "./App";
 
 vi.mock("../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/client")>();
   return {
     ...actual,
+    getCurrentUser: vi.fn(),
+    login: vi.fn(),
+    logout: vi.fn(),
+    register: vi.fn(),
     listPapers: vi.fn(),
     deletePaper: vi.fn(),
     getPaper: vi.fn(),
@@ -24,7 +28,17 @@ vi.mock("../features/reader/PdfReader", () => ({
   ),
 }));
 
-import { deletePaper, getPaper, getTask, listPapers, uploadPaper } from "../api/client";
+import {
+  deletePaper,
+  getCurrentUser,
+  getPaper,
+  getTask,
+  listPapers,
+  login,
+  logout,
+  PaperwiseApiError,
+  uploadPaper,
+} from "../api/client";
 
 const first: Paper = {
   paper_id: "a".repeat(64),
@@ -40,6 +54,13 @@ const first: Paper = {
 
 const second: Paper = { ...first, paper_id: "b".repeat(64), filename: "second.pdf" };
 
+const user: AuthUser = {
+  user_id: "11111111-1111-4111-8111-111111111111",
+  username: "admin",
+  role: "admin",
+  created_at: "2026-07-15T00:00:00Z",
+};
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -48,6 +69,9 @@ afterEach(() => {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.mocked(getCurrentUser).mockResolvedValue(user);
+  vi.mocked(login).mockResolvedValue(user);
+  vi.mocked(logout).mockResolvedValue(undefined);
   vi.mocked(deletePaper).mockResolvedValue(undefined);
   vi.mocked(getPaper).mockImplementation(async (paperId) =>
     paperId === second.paper_id ? second : first,
@@ -66,6 +90,44 @@ beforeEach(() => {
 });
 
 describe("App", () => {
+  it("shows the login form and delays paper loading when unauthenticated", async () => {
+    vi.mocked(getCurrentUser).mockRejectedValue(new PaperwiseApiError(401, {
+      error: { code: "AUTH_REQUIRED", message: "Auth required", details: null },
+    }));
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: "登录" })).toBeInTheDocument();
+    expect(listPapers).not.toHaveBeenCalled();
+  });
+
+  it("loads papers after login succeeds", async () => {
+    vi.mocked(getCurrentUser).mockRejectedValue(new PaperwiseApiError(401, {
+      error: { code: "AUTH_REQUIRED", message: "Auth required", details: null },
+    }));
+    vi.mocked(listPapers).mockResolvedValue([first]);
+
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "admin" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "登录进入" }));
+
+    expect(await screen.findByTestId("pdf-reader")).toHaveTextContent("first.pdf");
+    expect(login).toHaveBeenCalledWith({ username: "admin", password: "password123" });
+  });
+
+  it("clears the workspace on logout", async () => {
+    vi.mocked(listPapers).mockResolvedValue([first]);
+    render(<App />);
+    expect(await screen.findByTestId("pdf-reader")).toHaveTextContent("first.pdf");
+
+    fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
+
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("button", { name: "登录" })).toBeInTheDocument();
+    expect(screen.queryByTestId("pdf-reader")).not.toBeInTheDocument();
+  });
+
   it("restores the paper list and selects the most recent paper", async () => {
     vi.mocked(listPapers).mockResolvedValue([first, second]);
 

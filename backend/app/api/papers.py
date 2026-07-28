@@ -26,7 +26,11 @@ HEAD_ERROR = {"description": "Error response without a body"}
 
 
 def service(request: Request) -> PaperService:
-    return PaperService(request.app.state.database, request.app.state.settings.data_dir)
+    return PaperService(
+        request.app.state.database,
+        request.app.state.settings.data_dir,
+        getattr(request.state, "user_id", "00000000-0000-4000-8000-000000000000"),
+    )
 
 
 @router.post(
@@ -135,6 +139,8 @@ async def head_paper_file(request: Request, paper_id: PaperId) -> Response:
 )
 async def retry_paper(request: Request, paper_id: PaperId) -> RetryResponse:
     task_service = TaskService(
-        request.app.state.database, request.app.state.settings.data_dir
+        request.app.state.database,
+        request.app.state.settings.data_dir,
+        getattr(request.state, "user_id", "00000000-0000-4000-8000-000000000000"),
     )
     return await run_in_threadpool(task_service.retry, paper_id)

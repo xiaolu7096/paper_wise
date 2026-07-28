@@ -258,7 +258,7 @@ export function PdfReader({ fileUrl, filename, targetPage, onTextSelection, onRe
   useEffect(() => {
     let active = true;
     let loaded: PDFDocumentProxy | null = null;
-    const task = getDocument({ url: fileUrl });
+    const task = getDocument({ url: fileUrl, withCredentials: true });
     setDocument(null);
     setScale(1);
     setCurrentPage(1);

@@ -9,6 +9,7 @@ from app.db.database import Database
 from app.services.model_client import ChatCompletionsClient
 from app.services.model_settings import ActiveModelConfig, ModelSettingsService
 from app.services.papers import utc_now
+from app.services.auth import LOCAL_USER_ID
 
 MAX_SOURCES = 12
 MAX_CONTEXT_TOKENS = 12_000
@@ -31,17 +32,22 @@ class CardService:
         database: Database,
         model_settings: ModelSettingsService,
         client_factory: Callable[[ActiveModelConfig], ChatCompletionsClient],
+        user_id: str = LOCAL_USER_ID,
     ) -> None:
         self.database = database
         self.model_settings = model_settings
         self.client_factory = client_factory
+        self.user_id = user_id
 
     def get(self, paper_id: str) -> CardResponse:
         self._paper_status(paper_id)
         with self.database.connect() as connection:
             row = connection.execute(
-                "SELECT content_json, model, updated_at FROM cards WHERE paper_id = ?",
-                (paper_id,),
+                """
+                SELECT content_json, model, updated_at FROM cards
+                WHERE paper_id = ? AND user_id = ?
+                """,
+                (paper_id, self.user_id),
             ).fetchone()
         if row is None:
             raise AppError(404, "CARD_NOT_FOUND", "Card report not found")
@@ -100,13 +106,13 @@ class CardService:
         )
         with self.database.connect() as connection:
             connection.execute(
-                """INSERT INTO cards (paper_id, content_json, model, updated_at)
-                   VALUES (?, ?, ?, ?)
-                   ON CONFLICT(paper_id) DO UPDATE SET
+                """INSERT INTO cards (user_id, paper_id, content_json, model, updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(user_id, paper_id) DO UPDATE SET
                      content_json=excluded.content_json,
                      model=excluded.model,
                      updated_at=excluded.updated_at""",
-                (paper_id, stored, config.model, updated_at),
+                (self.user_id, paper_id, stored, config.model, updated_at),
             )
         return CardResponse(
             schema_version=2,
@@ -120,7 +126,14 @@ class CardService:
     def _paper_status(self, paper_id: str) -> str:
         with self.database.connect() as connection:
             row = connection.execute(
-                "SELECT status FROM papers WHERE paper_id = ?", (paper_id,)
+                """
+                SELECT status FROM papers
+                LEFT JOIN user_papers
+                    ON user_papers.paper_id = papers.paper_id
+                    AND user_papers.user_id = ?
+                WHERE papers.paper_id = ? AND (user_papers.user_id = ? OR ? = ?)
+                """,
+                (self.user_id, paper_id, self.user_id, self.user_id, LOCAL_USER_ID),
             ).fetchone()
         if row is None:
             raise AppError(404, "PAPER_NOT_FOUND", "Paper not found")

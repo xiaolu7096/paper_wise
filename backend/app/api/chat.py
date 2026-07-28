@@ -12,11 +12,17 @@ router = APIRouter(prefix="/papers/{paper_id}", tags=["chat"])
 
 
 def service(request: Request) -> ChatService:
+    user_id = getattr(request.state, "user_id", "00000000-0000-4000-8000-000000000000")
     return ChatService(
         request.app.state.database,
         RetrievalService(request.app.state.database, request.app.state.embedder),
-        ModelSettingsService(request.app.state.settings),
+        ModelSettingsService(
+            request.app.state.settings,
+            request.app.state.database if request.app.state.settings.auth_enabled else None,
+            user_id if request.app.state.settings.auth_enabled else None,
+        ),
         request.app.state.model_client_factory,
+        user_id,
     )
 
 

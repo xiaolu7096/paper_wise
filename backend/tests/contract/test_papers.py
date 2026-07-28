@@ -349,14 +349,23 @@ def test_delete_paper_cascades_data_files_and_allows_reupload(tmp_path) -> None:
             "INSERT INTO chunks_fts VALUES (?, '1-01', 'text')", (paper_id,)
         )
         connection.execute(
-            "INSERT INTO messages VALUES (?, ?, 'user', 'question', NULL, ?)",
+            """
+            INSERT INTO messages (
+                message_id, paper_id, role, content, citations_json, created_at
+            ) VALUES (?, ?, 'user', 'question', NULL, ?)
+            """,
             (message_id, paper_id, now),
         )
         connection.execute(
-            "INSERT INTO cards VALUES (?, '{}', 'model', ?)", (paper_id, now)
+            "INSERT INTO cards (paper_id, content_json, model, updated_at) VALUES (?, '{}', 'model', ?)",
+            (paper_id, now),
         )
         connection.execute(
-            "INSERT INTO assets VALUES (?, ?, 'image/png', ?, 6, 16, 16, ?)",
+            """
+            INSERT INTO assets (
+                asset_id, paper_id, mime_type, relative_path, byte_size, width, height, created_at
+            ) VALUES (?, ?, 'image/png', ?, 6, 16, 16, ?)
+            """,
             (asset_id, paper_id, region.relative_to(tmp_path).as_posix(), now),
         )
         connection.execute(

@@ -14,11 +14,12 @@ export type ExplainRegionResponse = components["schemas"]["ExplainRegionResponse
 export type Annotation = components["schemas"]["Annotation"];
 export type AnnotationCreate = components["schemas"]["AnnotationCreate"];
 export type CardResponse = components["schemas"]["CardResponse"];
+export type AuthUser = components["schemas"]["AuthUser"];
+export type LoginRequest = components["schemas"]["LoginRequest"];
+export type RegisterRequest = components["schemas"]["RegisterRequest"];
 type ErrorResponse = components["schemas"]["ErrorResponse"];
 
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api"
-).replace(/\/$/, "");
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "/api").replace(/\/$/, "");
 
 export class PaperwiseApiError extends Error {
   readonly code: string;
@@ -52,21 +53,53 @@ async function parseResponse<T>(response: Response): Promise<T> {
   throw new PaperwiseApiError(response.status, body);
 }
 
+function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  return fetch(input, { credentials: "include", ...init });
+}
+
+export async function getCurrentUser(signal?: AbortSignal): Promise<AuthUser> {
+  const response = await apiFetch(`${API_BASE_URL}/auth/me`, { signal });
+  return parseResponse<AuthUser>(response);
+}
+
+export async function register(value: RegisterRequest): Promise<AuthUser> {
+  const response = await apiFetch(`${API_BASE_URL}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  });
+  return parseResponse<AuthUser>(response);
+}
+
+export async function login(value: LoginRequest): Promise<AuthUser> {
+  const response = await apiFetch(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  });
+  return parseResponse<AuthUser>(response);
+}
+
+export async function logout(): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/auth/logout`, { method: "POST" });
+  if (!response.ok) await parseResponse<never>(response);
+}
+
 export async function listPapers(signal?: AbortSignal): Promise<Paper[]> {
-  const response = await fetch(`${API_BASE_URL}/papers`, { signal });
+  const response = await apiFetch(`${API_BASE_URL}/papers`, { signal });
   const body = await parseResponse<components["schemas"]["PaperListResponse"]>(response);
   return body.items;
 }
 
 export async function getPaper(paperId: string, signal?: AbortSignal): Promise<Paper> {
-  const response = await fetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}`, {
+  const response = await apiFetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}`, {
     signal,
   });
   return parseResponse<Paper>(response);
 }
 
 export async function deletePaper(paperId: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}`, {
+  const response = await apiFetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}`, {
     method: "DELETE",
   });
   if (!response.ok) await parseResponse<never>(response);
@@ -75,7 +108,7 @@ export async function deletePaper(paperId: string): Promise<void> {
 export async function uploadPaper(file: File): Promise<PaperUploadResponse> {
   const form = new FormData();
   form.append("file", file);
-  const response = await fetch(`${API_BASE_URL}/papers`, {
+  const response = await apiFetch(`${API_BASE_URL}/papers`, {
     method: "POST",
     body: form,
   });
@@ -83,14 +116,14 @@ export async function uploadPaper(file: File): Promise<PaperUploadResponse> {
 }
 
 export async function getTask(taskId: string, signal?: AbortSignal): Promise<Task> {
-  const response = await fetch(`${API_BASE_URL}/tasks/${encodeURIComponent(taskId)}`, {
+  const response = await apiFetch(`${API_BASE_URL}/tasks/${encodeURIComponent(taskId)}`, {
     signal,
   });
   return parseResponse<Task>(response);
 }
 
 export async function retryPaper(paperId: string): Promise<RetryResponse> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/retry`,
     { method: "POST" },
   );
@@ -102,12 +135,12 @@ export function paperFileUrl(paperId: string): string {
 }
 
 export async function getSettingsStatus(): Promise<SettingsStatus> {
-  const response = await fetch(`${API_BASE_URL}/settings/status`);
+  const response = await apiFetch(`${API_BASE_URL}/settings/status`);
   return parseResponse<SettingsStatus>(response);
 }
 
 export async function updateSettings(value: SettingsUpdate): Promise<SettingsStatus> {
-  const response = await fetch(`${API_BASE_URL}/settings`, {
+  const response = await apiFetch(`${API_BASE_URL}/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(value),
@@ -116,7 +149,7 @@ export async function updateSettings(value: SettingsUpdate): Promise<SettingsSta
 }
 
 export async function getMessages(paperId: string, signal?: AbortSignal): Promise<Message[]> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/messages`,
     { signal },
   );
@@ -125,7 +158,7 @@ export async function getMessages(paperId: string, signal?: AbortSignal): Promis
 }
 
 export async function askPaper(paperId: string, question: string): Promise<ChatResponse> {
-  const response = await fetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/chat`, {
+  const response = await apiFetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question }),
@@ -134,7 +167,7 @@ export async function askPaper(paperId: string, question: string): Promise<ChatR
 }
 
 export async function clearMessages(paperId: string): Promise<void> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/messages`,
     { method: "DELETE" },
   );
@@ -145,7 +178,7 @@ export async function explainText(
   paperId: string,
   value: ExplainTextRequest,
 ): Promise<ExplainTextResponse> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/explain-text`,
     {
       method: "POST",
@@ -174,7 +207,7 @@ export async function explainRegion(
   form.append("viewport_rotation", String(value.viewportRotation));
   form.append("nearby_text", value.nearbyText);
   form.append("question", value.question);
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/explain-region`,
     { method: "POST", body: form },
   );
@@ -186,7 +219,7 @@ export function assetUrl(paperId: string, assetId: string): string {
 }
 
 export async function getAnnotations(paperId: string): Promise<Annotation[]> {
-  const response = await fetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/annotations`);
+  const response = await apiFetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/annotations`);
   const body = await parseResponse<components["schemas"]["AnnotationListResponse"]>(response);
   return body.items;
 }
@@ -195,7 +228,7 @@ export async function createAnnotation(
   paperId: string,
   value: AnnotationCreate,
 ): Promise<Annotation> {
-  const response = await fetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/annotations`, {
+  const response = await apiFetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/annotations`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(value),
@@ -204,7 +237,7 @@ export async function createAnnotation(
 }
 
 export async function deleteAnnotation(paperId: string, annotationId: string): Promise<void> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/annotations/${encodeURIComponent(annotationId)}`,
     { method: "DELETE" },
   );
@@ -212,12 +245,12 @@ export async function deleteAnnotation(paperId: string, annotationId: string): P
 }
 
 export async function getCard(paperId: string): Promise<CardResponse> {
-  const response = await fetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/card`);
+  const response = await apiFetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/card`);
   return parseResponse<CardResponse>(response);
 }
 
 export async function generateCard(paperId: string, regenerate: boolean): Promise<CardResponse> {
-  const response = await fetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/card`, {
+  const response = await apiFetch(`${API_BASE_URL}/papers/${encodeURIComponent(paperId)}/card`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ regenerate }),

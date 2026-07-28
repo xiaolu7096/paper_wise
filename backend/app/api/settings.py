@@ -10,7 +10,13 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 @router.get("/status", response_model=SettingsStatus)
 async def settings_status(request: Request) -> SettingsStatus:
-    return await run_in_threadpool(ModelSettingsService(request.app.state.settings).status)
+    return await run_in_threadpool(
+        ModelSettingsService(
+            request.app.state.settings,
+            request.app.state.database if request.app.state.settings.auth_enabled else None,
+            getattr(request.state, "user_id", None) if request.app.state.settings.auth_enabled else None,
+        ).status
+    )
 
 
 @router.put(
@@ -19,5 +25,9 @@ async def settings_status(request: Request) -> SettingsStatus:
     responses={422: ERROR, 500: ERROR},
 )
 async def update_settings(request: Request, value: SettingsUpdate) -> SettingsStatus:
-    service = ModelSettingsService(request.app.state.settings)
+    service = ModelSettingsService(
+        request.app.state.settings,
+        request.app.state.database if request.app.state.settings.auth_enabled else None,
+        getattr(request.state, "user_id", None) if request.app.state.settings.auth_enabled else None,
+    )
     return await run_in_threadpool(service.update, value)

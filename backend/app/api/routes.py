@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.cards import router as cards_router
 from app.api.annotations import router as annotations_router
@@ -17,6 +18,7 @@ async def health() -> HealthResponse:
     return HealthResponse(status="ok", version="1.2.0")
 
 
+router.include_router(auth_router)
 router.include_router(papers_router)
 router.include_router(tasks_router)
 router.include_router(settings_router)

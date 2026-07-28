@@ -1,13 +1,19 @@
-import { BookOpen, FileText, LoaderCircle, Settings, Trash2, Upload } from "lucide-react";
+import { BookOpen, FileText, LoaderCircle, LogOut, Settings, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { FormEvent } from "react";
 
 import {
   listPapers,
   deletePaper,
+  getCurrentUser,
   getPaper,
   getTask,
+  login,
+  logout,
   paperFileUrl,
   PaperwiseApiError,
+  register,
+  type AuthUser,
   type Paper,
   retryPaper,
   uploadPaper,
@@ -31,7 +37,62 @@ function statusLabel(status: Paper["status"]): string {
   }[status];
 }
 
+function AuthView({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => void }) {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const user = mode === "login"
+        ? await login({ username, password })
+        : await register({ username, password });
+      onAuthenticated(user);
+    } catch (reason) {
+      if (reason instanceof PaperwiseApiError && reason.code === "AUTH_REQUIRED") {
+        setError("已有管理员账号，请登录或联系管理员创建受邀用户。");
+      } else {
+        setError(reason instanceof Error ? reason.message : "认证失败");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="auth-page">
+      <form className="auth-card" onSubmit={(event) => void submit(event)}>
+        <div className="brand auth-brand"><BookOpen size={24} /><span>PaperWise</span></div>
+        <p className="auth-copy">请先登录。首次公开部署时，可创建第一个管理员账号。</p>
+        <div className="auth-tabs">
+          <button type="button" className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>登录</button>
+          <button type="button" className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>创建账号</button>
+        </div>
+        {error && <div role="alert" className="error-banner">{error}</div>}
+        <label>
+          用户名
+          <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required minLength={3} />
+        </label>
+        <label>
+          密码
+          <input value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={8} type="password" />
+        </label>
+        <button type="submit" className="auth-submit" disabled={busy}>
+          {busy ? "处理中…" : mode === "login" ? "登录进入" : "创建并登录"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 export function App() {
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,6 +109,28 @@ export function App() {
   const [textSelection, setTextSelection] = useState<TextSelection | null>(null);
   const [regionSelection, setRegionSelection] = useState<RegionSelection | null>(null);
 
+  const clearWorkspace = () => {
+    setPapers([]);
+    setSelectedId(null);
+    setActiveTaskId(null);
+    setTaskProgress(null);
+    setTargetPage(null);
+    setTextSelection(null);
+    setRegionSelection(null);
+    setSettingsOpen(false);
+    setSideTab("library");
+  };
+
+  const handleAuthError = (reason: unknown): boolean => {
+    if (reason instanceof PaperwiseApiError && reason.code === "AUTH_REQUIRED") {
+      setCurrentUser(null);
+      clearWorkspace();
+      setError("登录已失效，请重新登录。");
+      return true;
+    }
+    return false;
+  };
+
   useEffect(() => {
     setTextSelection(null);
     setRegionSelection(null);
@@ -55,6 +138,28 @@ export function App() {
 
   useEffect(() => {
     const controller = new AbortController();
+    void getCurrentUser(controller.signal)
+      .then((user) => setCurrentUser(user))
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          if (reason instanceof PaperwiseApiError && reason.code === "AUTH_REQUIRED") {
+            setCurrentUser(null);
+          } else {
+            setError(reason instanceof Error ? reason.message : "登录状态检查失败");
+          }
+        }
+      })
+      .finally(() => setAuthChecked(true));
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setLoading(true);
     void listPapers(controller.signal)
       .then((items) => {
         setPapers(items);
@@ -66,12 +171,14 @@ export function App() {
       })
       .catch((reason: unknown) => {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setError(reason instanceof Error ? reason.message : "论文列表加载失败");
+          if (!handleAuthError(reason)) {
+            setError(reason instanceof Error ? reason.message : "论文列表加载失败");
+          }
         }
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, []);
+  }, [currentUser?.user_id]);
 
   const selectedPaper = papers.find((paper) => paper.paper_id === selectedId) ?? null;
 
@@ -97,7 +204,9 @@ export function App() {
           && deletingIdRef.current === selectedPaper.paper_id
         ) return;
         if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setError(reason instanceof Error ? reason.message : "任务状态刷新失败");
+          if (!handleAuthError(reason)) {
+            setError(reason instanceof Error ? reason.message : "任务状态刷新失败");
+          }
         }
       }
     };
@@ -119,11 +228,13 @@ export function App() {
       setSelectedId(result.paper.paper_id);
       setActiveTaskId(result.task_id);
     } catch (reason) {
-      setError(
-        reason instanceof PaperwiseApiError || reason instanceof Error
-          ? reason.message
-          : "PDF 上传失败",
-      );
+      if (!handleAuthError(reason)) {
+        setError(
+          reason instanceof PaperwiseApiError || reason instanceof Error
+            ? reason.message
+            : "PDF 上传失败",
+        );
+      }
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -139,7 +250,9 @@ export function App() {
       const paper = await getPaper(selectedPaper.paper_id);
       setPapers((items) => items.map((item) => item.paper_id === paper.paper_id ? paper : item));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "重试失败");
+      if (!handleAuthError(reason)) {
+        setError(reason instanceof Error ? reason.message : "重试失败");
+      }
     }
   };
 
@@ -156,7 +269,9 @@ export function App() {
       if (reason instanceof PaperwiseApiError && reason.code === "PAPER_NOT_FOUND") {
         deleted = true;
       } else {
-        setError(reason instanceof Error ? reason.message : "论文删除失败");
+        if (!handleAuthError(reason)) {
+          setError(reason instanceof Error ? reason.message : "论文删除失败");
+        }
       }
     } finally {
       deletingIdRef.current = null;
@@ -175,11 +290,37 @@ export function App() {
     }
   };
 
+  const handleLogout = async () => {
+    setError(null);
+    try {
+      await logout();
+    } catch (reason) {
+      if (!handleAuthError(reason)) {
+        setError(reason instanceof Error ? reason.message : "退出登录失败");
+        return;
+      }
+    }
+    setCurrentUser(null);
+    clearWorkspace();
+  };
+
+  if (!authChecked) {
+    return (
+      <div className="auth-page">
+        <div className="reader-state"><LoaderCircle className="spin" />正在检查登录状态…</div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <AuthView onAuthenticated={(user) => { setError(null); setCurrentUser(user); }} />;
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <div className="brand"><BookOpen size={22} /><span>PaperWise</span></div>
-        <div className="topbar-actions"><div className="topbar-status">{selectedPaper?.filename ?? "本地论文工作台"}</div><button type="button" className="icon-button" title="设置" aria-label="打开设置" onClick={() => setSettingsOpen(true)}><Settings size={18} /></button></div>
+        <div className="topbar-actions"><div className="topbar-status">{selectedPaper?.filename ?? currentUser.username}</div><button type="button" className="icon-button" title="设置" aria-label="打开设置" onClick={() => setSettingsOpen(true)}><Settings size={18} /></button><button type="button" className="icon-button" title="退出登录" aria-label="退出登录" onClick={() => void handleLogout()}><LogOut size={18} /></button></div>
       </header>
       <main className="workspace">
         <section className="reader-region" aria-label="PDF 阅读器">

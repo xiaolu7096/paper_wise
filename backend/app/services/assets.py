@@ -15,6 +15,7 @@ from app.db.database import Database
 from app.services.model_client import ChatCompletionsClient
 from app.services.model_settings import ActiveModelConfig, ModelSettingsService
 from app.services.papers import PaperService, utc_now
+from app.services.auth import LOCAL_USER_ID
 
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_IMAGE_PIXELS = 16_000_000
@@ -35,10 +36,12 @@ class AssetService:
         data_dir: Path,
         model_settings: ModelSettingsService,
         client_factory: Callable[[ActiveModelConfig], ChatCompletionsClient],
+        user_id: str = LOCAL_USER_ID,
     ) -> None:
         self.database = database
         self.data_dir = data_dir
-        self.papers = PaperService(database, data_dir)
+        self.user_id = user_id
+        self.papers = PaperService(database, data_dir, user_id)
         self.model_settings = model_settings
         self.client_factory = client_factory
 
@@ -70,7 +73,9 @@ class AssetService:
             prompt, image_bytes, mime_type
         )
         asset_id = str(uuid4())
-        relative_path = Path("papers") / paper_id / "regions" / f"{asset_id}{suffix}"
+        relative_path = (
+            Path("papers") / paper_id / "users" / self.user_id / "regions" / f"{asset_id}{suffix}"
+        )
         final_path = self.data_dir / relative_path
         temporary = self.data_dir / "tmp" / f"{asset_id}.image"
         temporary.parent.mkdir(parents=True, exist_ok=True)
@@ -82,8 +87,8 @@ class AssetService:
                 connection.execute(
                     """INSERT INTO assets (
                            asset_id, paper_id, mime_type, relative_path,
-                           byte_size, width, height, created_at
-                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                           byte_size, width, height, created_at, user_id
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         asset_id,
                         paper_id,
@@ -93,6 +98,7 @@ class AssetService:
                         width,
                         height,
                         utc_now(),
+                        self.user_id,
                     ),
                 )
         except BaseException:
@@ -112,8 +118,8 @@ class AssetService:
         with self.database.connect() as connection:
             row = connection.execute(
                 """SELECT mime_type, relative_path, byte_size FROM assets
-                   WHERE paper_id = ? AND asset_id = ?""",
-                (paper_id, asset_id),
+                   WHERE paper_id = ? AND asset_id = ? AND user_id = ?""",
+                (paper_id, asset_id, self.user_id),
             ).fetchone()
         if row is None:
             raise AppError(404, "ASSET_NOT_FOUND", "Asset not found")
@@ -130,7 +136,8 @@ class AssetService:
             rows = connection.execute(
                 """SELECT asset_id, relative_path FROM assets a
                    WHERE a.created_at < ? AND NOT EXISTS (
-                       SELECT 1 FROM annotations n WHERE n.asset_id = a.asset_id
+                       SELECT 1 FROM annotations n
+                       WHERE n.asset_id = a.asset_id AND n.user_id = a.user_id
                    )""",
                 (cutoff,),
             ).fetchall()

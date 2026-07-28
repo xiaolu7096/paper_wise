@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { deletePaper, explainRegion, uploadPaper } from "./client";
+import { deletePaper, explainRegion, getCurrentUser, login, uploadPaper } from "./client";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -33,7 +33,32 @@ describe("uploadPaper", () => {
     const init = fetchMock.mock.calls[0]?.[1];
     expect(init?.method).toBe("POST");
     expect(init?.body).toBeInstanceOf(FormData);
+    expect(init?.credentials).toBe("include");
     expect(init?.headers).toBeUndefined();
+  });
+});
+
+describe("auth requests", () => {
+  it("sends credentials for session cookie requests", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        user_id: "11111111-1111-4111-8111-111111111111",
+        username: "admin",
+        role: "admin",
+        created_at: "2026-07-15T00:00:00Z",
+      }),
+    } as Response);
+
+    await getCurrentUser();
+    await login({ username: "admin", password: "password123" });
+
+    expect(fetchMock.mock.calls[0]?.[1]?.credentials).toBe("include");
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    });
   });
 });
 
@@ -60,6 +85,7 @@ describe("explainRegion", () => {
     });
     const init = fetchMock.mock.calls[0]?.[1];
     expect(init?.body).toBeInstanceOf(FormData);
+    expect(init?.credentials).toBe("include");
     expect(init?.headers).toBeUndefined();
   });
 });
@@ -78,6 +104,7 @@ describe("deletePaper", () => {
     const init = fetchMock.mock.calls[0]?.[1];
     expect(init?.method).toBe("DELETE");
     expect(init?.body).toBeUndefined();
+    expect(init?.credentials).toBe("include");
     expect(init?.headers).toBeUndefined();
     expect(json).not.toHaveBeenCalled();
   });

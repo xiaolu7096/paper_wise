@@ -8,8 +8,9 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api.errors import register_exception_handlers
+from app.api.errors import AppError, error_response, register_exception_handlers
 from app.api.routes import router
+from app.api.schemas import AuthUser
 from app.core.config import Settings
 from app.db.database import Database
 from app.jobs.ingest import IngestPipeline, JobRunner
@@ -18,6 +19,7 @@ from app.services.embeddings import Embedder, SentenceTransformerEmbedder
 from app.services.model_client import ChatCompletionsClient
 from app.services.model_settings import ModelSettingsService
 from app.services.papers import PaperService
+from app.services.auth import LOCAL_USER_ID, SESSION_COOKIE, AuthService
 
 logger = logging.getLogger("paperwise.requests")
 
@@ -37,6 +39,7 @@ def create_app(
     settings: Settings | None = None, embedder: Embedder | None = None
 ) -> FastAPI:
     active_settings = settings or Settings()
+    active_settings.validate_public_mode()
     database = Database(active_settings.data_dir / "paperwise.db")
     active_embedder = embedder or SentenceTransformerEmbedder(
         active_settings.embedding_model_name
@@ -64,7 +67,7 @@ def create_app(
 
     app = FastAPI(
         title="PaperWise API",
-        version="1.2.0",
+        version="1.5.0",
         lifespan=lifespan,
     )
     app.state.settings = active_settings
@@ -93,11 +96,40 @@ def create_app(
         )
         return response
 
+    @app.middleware("http")
+    async def auth_context(request: Request, call_next) -> Response:
+        if request.url.path.startswith("/api/") and request.url.path != "/api/health":
+            is_auth_route = request.url.path.startswith("/api/auth/")
+            auth_service = AuthService(database, active_settings)
+            if active_settings.auth_enabled:
+                if is_auth_route and request.url.path != "/api/auth/me":
+                    pass
+                else:
+                    try:
+                        user = auth_service.user_for_session(
+                            request.cookies.get(SESSION_COOKIE)
+                        )
+                    except AppError as error:
+                        return error_response(error)
+                    request.state.current_user = user
+                    request.state.user_id = user.user_id
+            else:
+                user = AuthUser(
+                    user_id=LOCAL_USER_ID,
+                    username="local",
+                    role="admin",
+                    created_at="1970-01-01T00:00:00Z",
+                )
+                request.state.current_user = user
+                request.state.user_id = user.user_id
+        return await call_next(request)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[active_settings.frontend_origin],
         allow_methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
         allow_headers=["Content-Type", "Range", "X-Request-ID"],
+        allow_credentials=True,
         expose_headers=[
             "Accept-Ranges",
             "Content-Length",

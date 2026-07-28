@@ -13,6 +13,16 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: 0.45; }
 
 .app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+.auth-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #e9ebe7; }
+.auth-card { width: min(380px, 100%); display: grid; gap: 14px; padding: 24px; border: 1px solid #cfd3cc; border-radius: 12px; background: #f7f8f5; box-shadow: 0 18px 50px rgb(20 25 21 / 14%); }
+.auth-brand { justify-content: center; font-size: 20px; }
+.auth-copy { margin: 0; color: #626960; font-size: 13px; line-height: 1.6; text-align: center; }
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; border: 1px solid #d2d6d0; border-radius: 8px; background: #ecefea; }
+.auth-tabs button { height: 34px; border: 0; border-radius: 6px; background: transparent; color: #687068; }
+.auth-tabs button.active { background: white; color: #234f3b; font-weight: 700; box-shadow: 0 1px 4px rgb(20 25 21 / 8%); }
+.auth-card label { display: grid; gap: 6px; color: #606760; font-size: 12px; }
+.auth-card input { height: 38px; padding: 0 10px; border: 1px solid #c5cac4; border-radius: 6px; background: white; }
+.auth-submit { height: 40px; border: 1px solid #245840; border-radius: 7px; background: #2f6b4f; color: white; }
 .topbar {
   height: 56px; display: flex; align-items: center; justify-content: space-between;
   padding: 0 20px; background: #f7f8f5; border-bottom: 1px solid #cfd3cc;

@@ -5,19 +5,22 @@ from app.api.errors import AppError
 from app.api.schemas import Annotation, AnnotationCreate
 from app.db.database import Database
 from app.services.papers import utc_now
+from app.services.auth import LOCAL_USER_ID
 
 
 class AnnotationService:
-    def __init__(self, database: Database) -> None:
+    def __init__(self, database: Database, user_id: str = LOCAL_USER_ID) -> None:
         self.database = database
+        self.user_id = user_id
 
     def list(self, paper_id: str) -> list[Annotation]:
         self._paper(paper_id)
         with self.database.connect() as connection:
             rows = connection.execute(
                 """SELECT * FROM annotations WHERE paper_id = ?
+                   AND user_id = ?
                    ORDER BY page IS NULL ASC, page ASC, created_at ASC, annotation_id ASC""",
-                (paper_id,),
+                (paper_id, self.user_id),
             ).fetchall()
         return [self._from_row(row) for row in rows]
 
@@ -28,8 +31,11 @@ class AnnotationService:
         if value.asset_id is not None:
             with self.database.connect() as connection:
                 asset = connection.execute(
-                    "SELECT 1 FROM assets WHERE paper_id = ? AND asset_id = ?",
-                    (paper_id, value.asset_id),
+                    """
+                    SELECT 1 FROM assets
+                    WHERE paper_id = ? AND asset_id = ? AND user_id = ?
+                    """,
+                    (paper_id, value.asset_id, self.user_id),
                 ).fetchone()
             if asset is None:
                 raise AppError(404, "ASSET_NOT_FOUND", "Asset not found")
@@ -40,8 +46,8 @@ class AnnotationService:
                 """INSERT INTO annotations (
                        annotation_id, paper_id, kind, page, bbox_json,
                        viewport_rotation, selected_text, asset_id,
-                       ai_explanation, note, created_at, updated_at
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       ai_explanation, note, created_at, updated_at, user_id
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     annotation_id,
                     paper_id,
@@ -55,6 +61,7 @@ class AnnotationService:
                     value.note,
                     now,
                     now,
+                    self.user_id,
                 ),
             )
             row = connection.execute(
@@ -66,8 +73,11 @@ class AnnotationService:
         self._paper(paper_id)
         with self.database.connect() as connection:
             cursor = connection.execute(
-                "DELETE FROM annotations WHERE paper_id = ? AND annotation_id = ?",
-                (paper_id, annotation_id),
+                """
+                DELETE FROM annotations
+                WHERE paper_id = ? AND annotation_id = ? AND user_id = ?
+                """,
+                (paper_id, annotation_id, self.user_id),
             )
         if cursor.rowcount == 0:
             raise AppError(404, "ANNOTATION_NOT_FOUND", "Annotation not found")
@@ -75,7 +85,14 @@ class AnnotationService:
     def _paper(self, paper_id: str):
         with self.database.connect() as connection:
             row = connection.execute(
-                "SELECT * FROM papers WHERE paper_id = ?", (paper_id,)
+                """
+                SELECT papers.* FROM papers
+                LEFT JOIN user_papers
+                    ON user_papers.paper_id = papers.paper_id
+                    AND user_papers.user_id = ?
+                WHERE papers.paper_id = ? AND (user_papers.user_id = ? OR ? = ?)
+                """,
+                (self.user_id, paper_id, self.user_id, self.user_id, LOCAL_USER_ID),
             ).fetchone()
         if row is None:
             raise AppError(404, "PAPER_NOT_FOUND", "Paper not found")

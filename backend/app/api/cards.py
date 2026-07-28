@@ -10,10 +10,16 @@ router = APIRouter(prefix="/papers/{paper_id}/card", tags=["cards"])
 
 
 def service(request: Request) -> CardService:
+    user_id = getattr(request.state, "user_id", "00000000-0000-4000-8000-000000000000")
     return CardService(
         request.app.state.database,
-        ModelSettingsService(request.app.state.settings),
+        ModelSettingsService(
+            request.app.state.settings,
+            request.app.state.database if request.app.state.settings.auth_enabled else None,
+            user_id if request.app.state.settings.auth_enabled else None,
+        ),
         request.app.state.model_client_factory,
+        user_id,
     )
 
 

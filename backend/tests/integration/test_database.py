@@ -45,7 +45,7 @@ def test_migrations_are_idempotent_and_enable_required_pragmas(tmp_path) -> None
         } <= tables
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
-        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 2
 
 
 def test_database_rejects_invalid_state_and_duplicate_active_task(tmp_path) -> None:

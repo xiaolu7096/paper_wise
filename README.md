@@ -1,4 +1,4 @@
-# PaperWise v1.2
+# PaperWise v1.5
 
 PaperWise 是一个本地优先的 AI 论文阅读辅助工作台。MVP 已实现 PDF 阅读、按页索引、带来源问答、文字与区域解释、笔记和自适应中文速读报告。
 

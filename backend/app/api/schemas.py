@@ -79,6 +79,22 @@ class RetryResponse(StrictSchema):
     status: Literal["queued"]
 
 
+class AuthUser(StrictSchema):
+    user_id: str
+    username: str
+    role: Literal["admin", "user"]
+    created_at: str
+
+
+class RegisterRequest(StrictSchema):
+    username: str = Field(min_length=3, max_length=80, pattern=r"^[A-Za-z0-9_.-]+$")
+    password: str = Field(min_length=8, max_length=200)
+
+
+class LoginRequest(RegisterRequest):
+    pass
+
+
 class ModelConfigInput(StrictSchema):
     base_url: str
     model: str = Field(min_length=1, max_length=200)
@@ -109,7 +125,7 @@ class ModelStatus(StrictSchema):
     configured: bool
     base_url: str | None
     model: str | None
-    source: Literal["environment", "user_config"] | None
+    source: Literal["environment", "user_config", "user_encrypted"] | None
 
 
 class SettingsStatus(StrictSchema):

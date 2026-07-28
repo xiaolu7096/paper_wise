@@ -12,7 +12,10 @@ router = APIRouter(prefix="/papers/{paper_id}/annotations", tags=["annotations"]
 
 
 def service(request: Request) -> AnnotationService:
-    return AnnotationService(request.app.state.database)
+    return AnnotationService(
+        request.app.state.database,
+        getattr(request.state, "user_id", "00000000-0000-4000-8000-000000000000"),
+    )
 
 
 @router.get("", response_model=AnnotationListResponse, responses={404: ERROR, 422: ERROR})

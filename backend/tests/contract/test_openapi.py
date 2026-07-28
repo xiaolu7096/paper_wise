@@ -3,6 +3,10 @@ from app.main import create_app
 
 EXPECTED_OPERATIONS = {
     ("get", "/api/health"),
+    ("post", "/api/auth/register"),
+    ("post", "/api/auth/login"),
+    ("post", "/api/auth/logout"),
+    ("get", "/api/auth/me"),
     ("get", "/api/papers"),
     ("post", "/api/papers"),
     ("get", "/api/papers/{paper_id}"),
@@ -27,7 +31,7 @@ EXPECTED_OPERATIONS = {
 }
 
 
-def test_openapi_contains_exactly_the_22_documented_operations() -> None:
+def test_openapi_contains_exactly_the_26_documented_operations() -> None:
     paths = create_app().openapi()["paths"]
     actual = {
         (method, path)

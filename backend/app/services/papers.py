@@ -17,6 +17,7 @@ from fastapi import UploadFile
 from app.api.errors import AppError
 from app.api.schemas import Paper, PaperUploadResponse
 from app.db.database import Database
+from app.services.auth import LOCAL_USER_ID
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 COPY_CHUNK_BYTES = 1024 * 1024
@@ -46,9 +47,12 @@ def paper_from_row(row: sqlite3.Row) -> Paper:
 
 
 class PaperService:
-    def __init__(self, database: Database, data_dir: Path) -> None:
+    def __init__(
+        self, database: Database, data_dir: Path, user_id: str = LOCAL_USER_ID
+    ) -> None:
         self.database = database
         self.data_dir = data_dir
+        self.user_id = user_id
 
     def upload(self, uploaded: UploadFile) -> UploadOutcome:
         filename = self._filename(uploaded.filename)
@@ -73,8 +77,9 @@ class PaperService:
             except Exception as error:
                 raise AppError(400, "INVALID_PDF", "The uploaded file is not a valid PDF") from error
 
-            existing = self.get_optional(paper_id)
+            existing = self._global_paper(paper_id)
             if existing:
+                self._ensure_owner(paper_id)
                 task_id = self._active_task_id(paper_id)
                 status_code = 202 if existing.status in {"queued", "processing"} else 200
                 return UploadOutcome(
@@ -106,11 +111,18 @@ class PaperService:
                         connection.execute(
                             """
                             INSERT INTO tasks (
-                                task_id, paper_id, kind, status, stage, progress,
+                                task_id, paper_id, kind, status, stage, progress, user_id,
                                 created_at, updated_at
-                            ) VALUES (?, ?, 'ingest', 'queued', 'queued', 0, ?, ?)
+                            ) VALUES (?, ?, 'ingest', 'queued', 'queued', 0, ?, ?, ?)
                             """,
-                            (task_id, paper_id, now, now),
+                            (task_id, paper_id, self.user_id, now, now),
+                        )
+                        connection.execute(
+                            """
+                            INSERT INTO user_papers (user_id, paper_id, created_at)
+                            VALUES (?, ?, ?)
+                            """,
+                            (self.user_id, paper_id, now),
                         )
             except BaseException:
                 final_path.unlink(missing_ok=True)
@@ -129,11 +141,16 @@ class PaperService:
         with self.database.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT paper_id, filename, title, page_count, status, stage,
-                       error, created_at, updated_at
+                SELECT papers.paper_id AS paper_id, filename, title, page_count, status, stage,
+                       error, papers.created_at AS created_at, updated_at
                 FROM papers
+                LEFT JOIN user_papers
+                    ON user_papers.paper_id = papers.paper_id
+                    AND user_papers.user_id = ?
+                WHERE user_papers.user_id = ? OR ? = ?
                 ORDER BY updated_at DESC, paper_id ASC
-                """
+                """,
+                (self.user_id, self.user_id, self.user_id, LOCAL_USER_ID),
             ).fetchall()
         return [paper_from_row(row) for row in rows]
 
@@ -141,11 +158,15 @@ class PaperService:
         with self.database.connect() as connection:
             row = connection.execute(
                 """
-                SELECT paper_id, filename, title, page_count, status, stage,
-                       error, created_at, updated_at
-                FROM papers WHERE paper_id = ?
+                SELECT papers.paper_id AS paper_id, filename, title, page_count, status, stage,
+                       error, papers.created_at AS created_at, updated_at
+                FROM papers
+                LEFT JOIN user_papers
+                    ON user_papers.paper_id = papers.paper_id
+                    AND user_papers.user_id = ?
+                WHERE papers.paper_id = ? AND (user_papers.user_id = ? OR ? = ?)
                 """,
-                (paper_id,),
+                (self.user_id, paper_id, self.user_id, self.user_id, LOCAL_USER_ID),
             ).fetchone()
         return paper_from_row(row) if row else None
 
@@ -169,12 +190,53 @@ class PaperService:
             with self.database.connect() as connection:
                 with self.database.transaction(connection):
                     row = connection.execute(
-                        "SELECT status FROM papers WHERE paper_id = ?", (paper_id,)
+                        """
+                        SELECT status FROM papers
+                        LEFT JOIN user_papers
+                            ON user_papers.paper_id = papers.paper_id
+                            AND user_papers.user_id = ?
+                        WHERE papers.paper_id = ?
+                          AND (user_papers.user_id = ? OR ? = ?)
+                        """,
+                        (self.user_id, paper_id, self.user_id, self.user_id, LOCAL_USER_ID),
                     ).fetchone()
                     if row is None:
                         raise AppError(404, "PAPER_NOT_FOUND", "Paper not found")
                     if row["status"] == "processing":
                         raise AppError(409, "PAPER_BUSY", "Paper is currently processing")
+                    remaining = connection.execute(
+                        """
+                        SELECT count(*) FROM user_papers
+                        WHERE paper_id = ? AND user_id != ?
+                        """,
+                        (paper_id, self.user_id),
+                    ).fetchone()[0]
+                    connection.execute(
+                        "DELETE FROM messages WHERE paper_id = ? AND user_id = ?",
+                        (paper_id, self.user_id),
+                    )
+                    connection.execute(
+                        "DELETE FROM cards WHERE paper_id = ? AND user_id = ?",
+                        (paper_id, self.user_id),
+                    )
+                    connection.execute(
+                        "DELETE FROM annotations WHERE paper_id = ? AND user_id = ?",
+                        (paper_id, self.user_id),
+                    )
+                    connection.execute(
+                        "DELETE FROM assets WHERE paper_id = ? AND user_id = ?",
+                        (paper_id, self.user_id),
+                    )
+                    connection.execute(
+                        "DELETE FROM tasks WHERE paper_id = ? AND user_id = ?",
+                        (paper_id, self.user_id),
+                    )
+                    connection.execute(
+                        "DELETE FROM user_papers WHERE paper_id = ? AND user_id = ?",
+                        (paper_id, self.user_id),
+                    )
+                    if remaining:
+                        return
                     if paper_dir.exists():
                         temporary_dir = self.data_dir / "tmp"
                         temporary_dir.mkdir(parents=True, exist_ok=True)
@@ -239,12 +301,34 @@ class PaperService:
             row = connection.execute(
                 """
                 SELECT task_id FROM tasks
-                WHERE paper_id = ? AND status IN ('queued', 'running')
+                WHERE paper_id = ? AND user_id = ? AND status IN ('queued', 'running')
                 ORDER BY created_at DESC LIMIT 1
+                """,
+                (paper_id, self.user_id),
+            ).fetchone()
+        return row[0] if row else None
+
+    def _global_paper(self, paper_id: str) -> Paper | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT paper_id, filename, title, page_count, status, stage,
+                       error, created_at, updated_at
+                FROM papers WHERE paper_id = ?
                 """,
                 (paper_id,),
             ).fetchone()
-        return row[0] if row else None
+        return paper_from_row(row) if row else None
+
+    def _ensure_owner(self, paper_id: str) -> None:
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO user_papers (user_id, paper_id, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (self.user_id, paper_id, utc_now()),
+            )
 
     def _paper_path(self, paper_id: str) -> Path:
         return self.data_dir / "papers" / paper_id / "original.pdf"
