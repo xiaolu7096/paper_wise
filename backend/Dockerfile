@@ -10,7 +10,16 @@ COPY pyproject.toml ./
 COPY app ./app
 COPY migrations ./migrations
 
-RUN pip install --no-cache-dir ".[retrieval]"
+ARG PYPI_INDEX_URL=https://pypi.org/simple
+ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+ARG PYTORCH_VERSION=2.13.0+cpu
+
+RUN pip install --no-cache-dir \
+        --index-url "${PYTORCH_INDEX_URL}" \
+        "torch==${PYTORCH_VERSION}" \
+    && pip install --no-cache-dir \
+        --index-url "${PYPI_INDEX_URL}" \
+        ".[retrieval]"
 
 EXPOSE 8000
 
