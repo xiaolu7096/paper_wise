@@ -41,7 +41,9 @@ class ExplanationService:
                     "role": "system",
                     "content": (
                         "Use only the supplied selection and local context. Do not claim facts "
-                        "that are not present."
+                        "that are not present. Write the final answer in Simplified Chinese "
+                        "(简体中文), while preserving proper nouns, formulas, and technical terms "
+                        "without a reliable Chinese translation."
                     ),
                 },
                 {

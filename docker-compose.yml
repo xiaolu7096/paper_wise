@@ -7,8 +7,10 @@ services:
       - .env
     environment:
       PAPERWISE_DATA_DIR: /app/data
+      HF_HOME: /app/model-cache
     volumes:
       - ./data:/app/data
+      - model_cache:/app/model-cache
 
   web:
     build:
@@ -29,3 +31,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  model_cache:

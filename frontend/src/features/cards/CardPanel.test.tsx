@@ -26,7 +26,7 @@ afterEach(cleanup);
 it("renders one safe report, navigates citations, and regenerates", async () => {
   const navigate = vi.fn();
   vi.mocked(generateCard).mockResolvedValue(response);
-  const view = render(<CardPanel paper={paper} onNavigatePage={navigate} />);
+  const view = render(<CardPanel paper={paper} textModelConfigured onNavigatePage={navigate} />);
   fireEvent.click(await screen.findByRole("button", { name: "生成速读报告" }));
 
   expect(await screen.findByRole("heading", { name: "论文速读" })).toBeInTheDocument();
@@ -39,4 +39,19 @@ it("renders one safe report, navigates citations, and regenerates", async () => 
 
   fireEvent.click(screen.getByRole("button", { name: "重新生成速读报告" }));
   await waitFor(() => expect(generateCard).toHaveBeenLastCalledWith(paper.paper_id, true));
+});
+
+it("prevents duplicate generation while a report request is pending", async () => {
+  let resolveGeneration!: (value: CardResponse) => void;
+  vi.mocked(generateCard).mockReturnValue(new Promise((resolve) => { resolveGeneration = resolve; }));
+  render(<CardPanel paper={paper} textModelConfigured onNavigatePage={vi.fn()} />);
+
+  const generateButton = await screen.findByRole("button", { name: "生成速读报告" });
+  fireEvent.click(generateButton);
+  fireEvent.click(generateButton);
+  expect(generateCard).toHaveBeenCalledTimes(1);
+  expect(generateButton).toBeDisabled();
+
+  resolveGeneration(response);
+  expect(await screen.findByRole("heading", { name: "论文速读" })).toBeInTheDocument();
 });

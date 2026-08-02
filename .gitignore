@@ -28,6 +28,12 @@ data/*
 # Generated contract
 contracts/openapi.json
 
+# Local planning, validation, and operational notes
+*.md
+!README.md
+!**/README.md
+!项目说明文档.md
+
 # Editors and OS
 .idea/
 .vscode/

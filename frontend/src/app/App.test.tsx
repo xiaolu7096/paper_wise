@@ -16,6 +16,8 @@ vi.mock("../api/client", async (importOriginal) => {
     deletePaper: vi.fn(),
     getPaper: vi.fn(),
     getTask: vi.fn(),
+    getMessages: vi.fn(),
+    getSettingsStatus: vi.fn(),
     retryPaper: vi.fn(),
     uploadPaper: vi.fn(),
     paperFileUrl: (paperId: string) => `http://test/api/papers/${paperId}/file`,
@@ -32,6 +34,8 @@ import {
   deletePaper,
   getCurrentUser,
   getPaper,
+  getMessages,
+  getSettingsStatus,
   getTask,
   listPapers,
   login,
@@ -68,11 +72,17 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  window.localStorage.clear();
   vi.spyOn(window, "confirm").mockReturnValue(true);
   vi.mocked(getCurrentUser).mockResolvedValue(user);
   vi.mocked(login).mockResolvedValue(user);
   vi.mocked(logout).mockResolvedValue(undefined);
   vi.mocked(deletePaper).mockResolvedValue(undefined);
+  vi.mocked(getMessages).mockResolvedValue([]);
+  vi.mocked(getSettingsStatus).mockResolvedValue({
+    text_model: { configured: false, base_url: null, model: null, source: null },
+    vision_model: { configured: false, base_url: null, model: null, source: null },
+  });
   vi.mocked(getPaper).mockImplementation(async (paperId) =>
     paperId === second.paper_id ? second : first,
   );
@@ -160,6 +170,51 @@ describe("App", () => {
     expect(await screen.findByTestId("pdf-reader")).toHaveTextContent("second.pdf");
     expect(uploadPaper).toHaveBeenCalledTimes(1);
     expect(listPapers).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("progressbar", { name: "second.pdf 解析进度" })).toBeInTheDocument();
+  });
+
+  it("hides and restores the navigation from the edge control", async () => {
+    vi.mocked(listPapers).mockResolvedValue([first]);
+    render(<App />);
+    await screen.findByTestId("pdf-reader");
+
+    const navigation = screen.getByRole("complementary", { name: "全局导航" });
+    fireEvent.click(screen.getByRole("button", { name: "隐藏左侧导航" }));
+
+    expect(navigation).toHaveAttribute("aria-hidden", "true");
+    expect(window.localStorage.getItem("paperwise-navigation-open")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "展开左侧导航" }));
+    expect(navigation).toHaveAttribute("aria-hidden", "false");
+
+    for (let index = 0; index < 18; index += 1) {
+      fireEvent.click(screen.getByRole("button", {
+        name: index % 2 === 0 ? "隐藏左侧导航" : "展开左侧导航",
+      }));
+    }
+    expect(navigation).toHaveAttribute("aria-hidden", "false");
+    expect(screen.getByTestId("pdf-reader")).toHaveTextContent("first.pdf");
+  });
+
+  it("opens settings from the navigation and has no top settings button", async () => {
+    vi.mocked(listPapers).mockResolvedValue([]);
+    render(<App />);
+    await waitFor(() => expect(listPapers).toHaveBeenCalledTimes(1));
+
+    expect(screen.queryByRole("button", { name: "打开设置" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "API 配置" }));
+    expect(await screen.findByRole("dialog", { name: "模型设置" })).toBeInTheDocument();
+  });
+
+  it("filters the paper list without changing the selected paper", async () => {
+    vi.mocked(listPapers).mockResolvedValue([first, second]);
+    render(<App />);
+    await screen.findByTestId("pdf-reader");
+
+    fireEvent.change(screen.getByLabelText("搜索论文"), { target: { value: "second" } });
+
+    expect(screen.queryByRole("button", { name: "打开 first.pdf" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "打开 second.pdf" })).toBeInTheDocument();
+    expect(screen.getByTestId("pdf-reader")).toHaveTextContent("first.pdf");
   });
 
   it("deletes the selected paper and opens the first remaining paper", async () => {

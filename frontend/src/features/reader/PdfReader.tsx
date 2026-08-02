@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Scan, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, Maximize2, MoveHorizontal, Scan, ZoomIn, ZoomOut } from "lucide-react";
 import {
   GlobalWorkerOptions,
   TextLayer,
@@ -250,9 +250,11 @@ export function PdfReader({ fileUrl, filename, targetPage, onTextSelection, onRe
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
   const [scale, setScale] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageInput, setPageInput] = useState("1");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const pagesRef = useRef<HTMLDivElement>(null);
+  const pageInputRef = useRef<HTMLInputElement>(null);
   const [regionMode, setRegionMode] = useState(false);
 
   useEffect(() => {
@@ -262,6 +264,8 @@ export function PdfReader({ fileUrl, filename, targetPage, onTextSelection, onRe
     setDocument(null);
     setScale(1);
     setCurrentPage(1);
+    setPageInput("1");
+    setRegionMode(false);
     setLoading(true);
     setError(null);
 
@@ -316,6 +320,41 @@ export function PdfReader({ fileUrl, filename, targetPage, onTextSelection, onRe
       ?.scrollIntoView({ block: "start" });
   };
 
+  const commitPageInput = () => {
+    const value = Number(pageInput);
+    if (!document || !Number.isFinite(value)) {
+      setPageInput(String(currentPage));
+      return;
+    }
+    const page = Math.min(Math.max(Math.trunc(value), 1), document.numPages);
+    setPageInput(String(page));
+    goToPage(page);
+  };
+
+  const fitPage = async (mode: "width" | "page") => {
+    const root = pagesRef.current;
+    if (!document || !root) return;
+    const page = await document.getPage(currentPage);
+    const viewport = page.getViewport({ scale: 1 });
+    const widthScale = (root.clientWidth - 44) / viewport.width;
+    const heightScale = (root.clientHeight - 44) / viewport.height;
+    const nextScale = mode === "width" ? widthScale : Math.min(widthScale, heightScale);
+    setScale(Math.min(MAX_SCALE, Math.max(MIN_SCALE, nextScale)));
+  };
+
+  useEffect(() => {
+    if (globalThis.document.activeElement !== pageInputRef.current) setPageInput(String(currentPage));
+  }, [currentPage]);
+
+  useEffect(() => {
+    if (!regionMode) return;
+    const exitRegionMode = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setRegionMode(false);
+    };
+    window.addEventListener("keydown", exitRegionMode);
+    return () => window.removeEventListener("keydown", exitRegionMode);
+  }, [regionMode]);
+
   useEffect(() => {
     if (targetPage) goToPage(targetPage);
   }, [targetPage, document]);
@@ -325,7 +364,7 @@ export function PdfReader({ fileUrl, filename, targetPage, onTextSelection, onRe
       <header className="reader-toolbar">
         <div className="reader-title" title={filename}>{filename}</div>
         <div className="toolbar-group" aria-label="页码控制">
-          <button type="button" className="icon-button" title="上一页" aria-label="上一页" onClick={() => goToPage(currentPage - 1)} disabled={!document || currentPage <= 1}>
+          <button type="button" className="icon-button ghost" title="上一页" aria-label="上一页" onClick={() => goToPage(currentPage - 1)} disabled={!document || currentPage <= 1}>
             <ChevronLeft size={18} />
           </button>
           <label className="page-counter">
@@ -335,24 +374,42 @@ export function PdfReader({ fileUrl, filename, targetPage, onTextSelection, onRe
               type="number"
               min={1}
               max={document?.numPages ?? 1}
-              value={currentPage}
-              onChange={(event) => goToPage(Number(event.target.value))}
+              ref={pageInputRef}
+              value={pageInput}
+              onChange={(event) => setPageInput(event.target.value)}
+              onBlur={commitPageInput}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commitPageInput();
+                  event.currentTarget.blur();
+                } else if (event.key === "Escape") {
+                  setPageInput(String(currentPage));
+                  event.currentTarget.blur();
+                }
+              }}
             />
             <span>/ {document?.numPages ?? "—"}</span>
           </label>
-          <button type="button" className="icon-button" title="下一页" aria-label="下一页" onClick={() => goToPage(currentPage + 1)} disabled={!document || currentPage >= document.numPages}>
+          <button type="button" className="icon-button ghost" title="下一页" aria-label="下一页" onClick={() => goToPage(currentPage + 1)} disabled={!document || currentPage >= document.numPages}>
             <ChevronRight size={18} />
           </button>
         </div>
         <div className="toolbar-group" aria-label="缩放控制">
-          <button type="button" className="icon-button" title="框选区域" aria-label="框选区域" aria-pressed={regionMode} onClick={() => setRegionMode((value) => !value)} disabled={!document}>
+          <button type="button" className="icon-button ghost" title="框选区域" aria-label="框选区域" aria-pressed={regionMode} onClick={() => setRegionMode((value) => !value)} disabled={!document}>
             <Scan size={18} />
           </button>
-          <button type="button" className="icon-button" title="缩小" aria-label="缩小" onClick={() => setScale((value) => Math.max(MIN_SCALE, value - SCALE_STEP))} disabled={scale <= MIN_SCALE}>
+          <button type="button" className="icon-button ghost" title="适合宽度" aria-label="适合宽度" onClick={() => void fitPage("width")} disabled={!document}>
+            <MoveHorizontal size={18} />
+          </button>
+          <button type="button" className="icon-button ghost" title="适合页面" aria-label="适合页面" onClick={() => void fitPage("page")} disabled={!document}>
+            <Maximize2 size={18} />
+          </button>
+          <button type="button" className="icon-button ghost" title="缩小" aria-label="缩小" onClick={() => setScale((value) => Math.max(MIN_SCALE, value - SCALE_STEP))} disabled={scale <= MIN_SCALE}>
             <ZoomOut size={18} />
           </button>
           <span className="scale-value">{Math.round(scale * 100)}%</span>
-          <button type="button" className="icon-button" title="放大" aria-label="放大" onClick={() => setScale((value) => Math.min(MAX_SCALE, value + SCALE_STEP))} disabled={scale >= MAX_SCALE}>
+          <button type="button" className="icon-button ghost" title="放大" aria-label="放大" onClick={() => setScale((value) => Math.min(MAX_SCALE, value + SCALE_STEP))} disabled={scale >= MAX_SCALE}>
             <ZoomIn size={18} />
           </button>
         </div>
@@ -361,7 +418,10 @@ export function PdfReader({ fileUrl, filename, targetPage, onTextSelection, onRe
         {loading && <div className="reader-state">正在加载 PDF…</div>}
         {error && <div className="reader-state error-text">{error}</div>}
         {document && Array.from({ length: document.numPages }, (_, index) => (
-          <PdfPage key={index + 1} document={document} pageNumber={index + 1} scale={scale} onTextSelection={onTextSelection} regionMode={regionMode} onRegionSelection={onRegionSelection} />
+          <PdfPage key={index + 1} document={document} pageNumber={index + 1} scale={scale} onTextSelection={onTextSelection} regionMode={regionMode} onRegionSelection={(selection) => {
+            setRegionMode(false);
+            onRegionSelection?.(selection);
+          }} />
         ))}
       </div>
     </div>

@@ -51,16 +51,28 @@ class Database:
                 if migration.name in applied:
                     continue
                 statements = self._statements(migration.read_text(encoding="utf-8"))
-                with self.transaction(connection):
-                    for statement in statements:
-                        connection.execute(statement)
-                    connection.execute(
-                        """
-                        INSERT INTO schema_migrations (version, applied_at)
-                        VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-                        """,
-                        (migration.name,),
-                    )
+                foreign_keys_off = migration.name == "0002_opt005_users.sql"
+                if foreign_keys_off:
+                    connection.execute("PRAGMA foreign_keys=OFF")
+                try:
+                    with self.transaction(connection):
+                        for statement in statements:
+                            connection.execute(statement)
+                        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+                        if violations:
+                            raise sqlite3.IntegrityError(
+                                f"Migration {migration.name} introduced foreign key violations"
+                            )
+                        connection.execute(
+                            """
+                            INSERT INTO schema_migrations (version, applied_at)
+                            VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                            """,
+                            (migration.name,),
+                        )
+                finally:
+                    if foreign_keys_off:
+                        connection.execute("PRAGMA foreign_keys=ON")
 
     @staticmethod
     def _statements(script: str) -> list[str]:

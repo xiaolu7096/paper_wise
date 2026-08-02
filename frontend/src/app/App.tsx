@@ -1,4 +1,17 @@
-import { BookOpen, FileText, LoaderCircle, LogOut, Settings, Trash2, Upload } from "lucide-react";
+import {
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  Library,
+  LoaderCircle,
+  LogOut,
+  Search,
+  Settings,
+  Trash2,
+  Upload,
+  UserRound,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
@@ -7,6 +20,7 @@ import {
   deletePaper,
   getCurrentUser,
   getPaper,
+  getSettingsStatus,
   getTask,
   login,
   logout,
@@ -15,6 +29,7 @@ import {
   register,
   type AuthUser,
   type Paper,
+  type SettingsStatus,
   retryPaper,
   uploadPaper,
 } from "../api/client";
@@ -35,6 +50,14 @@ function statusLabel(status: Paper["status"]): string {
     ready: "已就绪",
     failed: "处理失败",
   }[status];
+}
+
+const NAVIGATION_STORAGE_KEY = "paperwise-navigation-open";
+
+function initialNavigationOpen(): boolean {
+  const stored = window.localStorage.getItem(NAVIGATION_STORAGE_KEY);
+  if (stored !== null) return stored === "true";
+  return typeof window.matchMedia !== "function" || !window.matchMedia("(max-width: 760px)").matches;
 }
 
 function AuthView({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => void }) {
@@ -104,7 +127,11 @@ export function App() {
   const deletingIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [sideTab, setSideTab] = useState<"library" | "chat" | "explain" | "notes" | "card">("library");
+  const [settingsStatus, setSettingsStatus] = useState<SettingsStatus | null>(null);
+  const [navigationOpen, setNavigationOpen] = useState(initialNavigationOpen);
+  const [navigationView, setNavigationView] = useState<"library" | "account">("library");
+  const [paperQuery, setPaperQuery] = useState("");
+  const [sideTab, setSideTab] = useState<"chat" | "explain" | "notes" | "card">("chat");
   const [targetPage, setTargetPage] = useState<number | null>(null);
   const [textSelection, setTextSelection] = useState<TextSelection | null>(null);
   const [regionSelection, setRegionSelection] = useState<RegionSelection | null>(null);
@@ -118,7 +145,10 @@ export function App() {
     setTextSelection(null);
     setRegionSelection(null);
     setSettingsOpen(false);
-    setSideTab("library");
+    setSettingsStatus(null);
+    setNavigationView("library");
+    setPaperQuery("");
+    setSideTab("chat");
   };
 
   const handleAuthError = (reason: unknown): boolean => {
@@ -135,6 +165,10 @@ export function App() {
     setTextSelection(null);
     setRegionSelection(null);
   }, [selectedId]);
+
+  useEffect(() => {
+    window.localStorage.setItem(NAVIGATION_STORAGE_KEY, String(navigationOpen));
+  }, [navigationOpen]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -180,7 +214,21 @@ export function App() {
     return () => controller.abort();
   }, [currentUser?.user_id]);
 
+  useEffect(() => {
+    let active = true;
+    setSettingsStatus(null);
+    if (!currentUser) return;
+    void getSettingsStatus()
+      .then((status) => { if (active) setSettingsStatus(status); })
+      .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "模型配置状态读取失败"); });
+    return () => { active = false; };
+  }, [currentUser?.user_id]);
+
   const selectedPaper = papers.find((paper) => paper.paper_id === selectedId) ?? null;
+  const normalizedPaperQuery = paperQuery.trim().toLocaleLowerCase();
+  const visiblePapers = normalizedPaperQuery
+    ? papers.filter((paper) => paper.filename.toLocaleLowerCase().includes(normalizedPaperQuery))
+    : papers;
 
   useEffect(() => {
     if (!selectedPaper || !["queued", "processing"].includes(selectedPaper.status)) {
@@ -317,12 +365,144 @@ export function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${navigationOpen ? "navigation-open" : "navigation-hidden"}`}>
       <header className="topbar">
         <div className="brand"><BookOpen size={22} /><span>PaperWise</span></div>
-        <div className="topbar-actions"><div className="topbar-status">{selectedPaper?.filename ?? currentUser.username}</div><button type="button" className="icon-button" title="设置" aria-label="打开设置" onClick={() => setSettingsOpen(true)}><Settings size={18} /></button><button type="button" className="icon-button" title="退出登录" aria-label="退出登录" onClick={() => void handleLogout()}><LogOut size={18} /></button></div>
+        <div className="topbar-actions"><div className="topbar-status" title={selectedPaper?.filename}>{selectedPaper?.filename ?? currentUser.username}</div><button type="button" className="icon-button ghost" title="退出登录" aria-label="退出登录" onClick={() => void handleLogout()}><LogOut size={18} /></button></div>
       </header>
       <main className="workspace">
+        <aside
+          id="workspace-navigation"
+          className="workspace-navigation"
+          aria-label="全局导航"
+          aria-hidden={!navigationOpen}
+          inert={!navigationOpen}
+        >
+          <div className="navigation-inner">
+            <nav className="navigation-menu" aria-label="PaperWise 导航">
+              <button
+                type="button"
+                className={navigationView === "library" && !settingsOpen ? "active" : ""}
+                onClick={() => { setSettingsOpen(false); setNavigationView("library"); }}
+              ><Library size={18} /><span>论文库</span></button>
+              <button
+                type="button"
+                className={settingsOpen ? "active" : ""}
+                onClick={() => setSettingsOpen(true)}
+              ><Settings size={18} /><span>API 配置</span></button>
+              <button
+                type="button"
+                className={navigationView === "account" && !settingsOpen ? "active" : ""}
+                onClick={() => { setSettingsOpen(false); setNavigationView("account"); }}
+              ><UserRound size={18} /><span>账号</span></button>
+            </nav>
+
+            {error && <div role="alert" className="error-banner">{error}</div>}
+
+            {navigationView === "library" ? (
+              <section className="navigation-view" aria-labelledby="library-title">
+                <div className="panel-heading compact">
+                  <div><span className="eyebrow">LIBRARY</span><h1 id="library-title">论文库</h1></div>
+                  <button type="button" className="upload-button" onClick={() => fileInputRef.current?.click()} disabled={uploading} aria-label="上传 PDF">
+                    {uploading ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />}
+                    <span>{uploading ? "上传中" : "上传"}</span>
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    className="sr-only"
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    aria-label="选择 PDF 文件"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void handleUpload(file);
+                    }}
+                  />
+                </div>
+
+                {uploading && (
+                  <div className="upload-progress indeterminate" role="status" aria-label="PDF 上传中">
+                    <span className="progress-fill" />
+                    <span className="progress-label">上传中</span>
+                  </div>
+                )}
+
+                <label className="paper-search">
+                  <Search size={15} aria-hidden="true" />
+                  <span className="sr-only">搜索论文</span>
+                  <input value={paperQuery} placeholder="搜索论文" onChange={(event) => setPaperQuery(event.target.value)} />
+                </label>
+
+                {selectedPaper?.status === "failed" && (
+                  <button type="button" className="retry-button" onClick={() => void handleRetry()}>
+                    重新处理
+                  </button>
+                )}
+
+                <div className="paper-list">
+                  {visiblePapers.map((paper) => {
+                    const showProgress = paper.paper_id === selectedId
+                      && activeTaskId !== null
+                      && ["queued", "processing"].includes(paper.status);
+                    return (
+                      <div className="paper-row" key={paper.paper_id}>
+                        <button
+                          type="button"
+                          className={`paper-item${paper.paper_id === selectedId ? " selected" : ""}`}
+                          aria-label={`打开 ${paper.filename}`}
+                          onClick={() => setSelectedId(paper.paper_id)}
+                        >
+                          <FileText size={18} />
+                          <span className="paper-copy">
+                            <strong title={paper.filename}>{paper.filename}</strong>
+                            <span className="paper-meta">
+                              <span>{paper.page_count} 页</span>
+                              <span className={`status-badge ${paper.status}`}>{statusLabel(paper.status)}</span>
+                            </span>
+                            {showProgress && (
+                              <span
+                                className="task-progress"
+                                role="progressbar"
+                                aria-label={`${paper.filename} 解析进度`}
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-valuenow={taskProgress ?? 0}
+                              >
+                                <span className="progress-fill" style={{ width: `${taskProgress ?? 0}%` }} />
+                                <span className="progress-label">{taskProgress === null ? statusLabel(paper.status) : `${taskProgress}%`}</span>
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="paper-delete"
+                          title={`删除 ${paper.filename}`}
+                          aria-label={`删除 ${paper.filename}`}
+                          disabled={deletingId === paper.paper_id}
+                          onClick={() => void handleDelete(paper)}
+                        >
+                          {deletingId === paper.paper_id ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {!loading && visiblePapers.length === 0 && (
+                    <p className="navigation-empty">{papers.length === 0 ? "尚未添加论文" : "没有匹配的论文"}</p>
+                  )}
+                </div>
+              </section>
+            ) : (
+              <section className="navigation-view account-view" aria-labelledby="account-title">
+                <div className="account-avatar"><UserRound size={24} /></div>
+                <div><span className="eyebrow">ACCOUNT</span><h1 id="account-title">{currentUser.username}</h1></div>
+                <dl><div><dt>角色</dt><dd>{currentUser.role === "admin" ? "管理员" : currentUser.role}</dd></div><div><dt>状态</dt><dd>已登录</dd></div></dl>
+                <button type="button" className="account-logout" aria-label="从账号退出登录" onClick={() => void handleLogout()}><LogOut size={16} />退出登录</button>
+              </section>
+            )}
+          </div>
+        </aside>
+
         <section className="reader-region" aria-label="PDF 阅读器">
           {selectedPaper ? (
             <PdfReader
@@ -350,72 +530,21 @@ export function App() {
             </div>
           )}
         </section>
-        <aside className="library-panel" aria-label="论文库">
-          <div className="side-tabs"><button type="button" className={sideTab === "library" ? "active" : ""} onClick={() => setSideTab("library")}>论文库</button><button type="button" className={sideTab === "chat" ? "active" : ""} onClick={() => setSideTab("chat")}>问答</button><button type="button" className={sideTab === "explain" ? "active" : ""} onClick={() => setSideTab("explain")}>解释</button><button type="button" className={sideTab === "notes" ? "active" : ""} onClick={() => setSideTab("notes")}>笔记</button><button type="button" className={sideTab === "card" ? "active" : ""} onClick={() => setSideTab("card")}>速读</button></div>
-          {sideTab === "library" ? <>
-          <div className="panel-heading">
-            <div><span className="eyebrow">LIBRARY</span><h1>论文库</h1></div>
-            <button type="button" className="upload-button" onClick={() => fileInputRef.current?.click()} disabled={uploading} aria-label="上传 PDF">
-              {uploading ? <LoaderCircle className="spin" size={18} /> : <Upload size={18} />}
-              <span>{uploading ? "上传中" : "上传"}</span>
-            </button>
-            <input
-              ref={fileInputRef}
-              className="sr-only"
-              type="file"
-              accept="application/pdf,.pdf"
-              aria-label="选择 PDF 文件"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void handleUpload(file);
-              }}
-            />
-          </div>
-          {error && <div role="alert" className="error-banner">{error}</div>}
-          {selectedPaper && ["queued", "processing"].includes(selectedPaper.status) && (
-            <div className="task-strip">
-              <span>{statusLabel(selectedPaper.status)}</span>
-              <span>{taskProgress === null ? "—" : `${taskProgress}%`}</span>
-            </div>
-          )}
-          {selectedPaper?.status === "failed" && (
-            <button type="button" className="retry-button" onClick={() => void handleRetry()}>
-              重新处理
-            </button>
-          )}
-          <div className="paper-list">
-            {papers.map((paper) => (
-              <div className="paper-row" key={paper.paper_id}>
-                <button
-                  type="button"
-                  className={`paper-item${paper.paper_id === selectedId ? " selected" : ""}`}
-                  aria-label={`打开 ${paper.filename}`}
-                  onClick={() => setSelectedId(paper.paper_id)}
-                >
-                  <FileText size={18} />
-                  <span className="paper-copy">
-                    <strong>{paper.filename}</strong>
-                    <span>{paper.page_count} 页</span>
-                  </span>
-                  <span className={`status-dot ${paper.status}`} title={statusLabel(paper.status)} />
-                </button>
-                <button
-                  type="button"
-                  className="paper-delete"
-                  title={`删除 ${paper.filename}`}
-                  aria-label={`删除 ${paper.filename}`}
-                  disabled={deletingId === paper.paper_id}
-                  onClick={() => void handleDelete(paper)}
-                >
-                  {deletingId === paper.paper_id ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
-                </button>
-              </div>
-            ))}
-          </div>
-          </> : sideTab === "chat" ? <ChatPanel paper={selectedPaper} onNavigatePage={(page) => { setTargetPage(page); }} /> : sideTab === "notes" ? <NotesPanel paper={selectedPaper} /> : sideTab === "card" ? <CardPanel paper={selectedPaper} onNavigatePage={(page) => setTargetPage(page)} /> : regionSelection && selectedPaper ? <RegionExplanationPanel key={`${selectedId}:${regionSelection.page}:${regionSelection.bbox.join(",")}`} paper={selectedPaper} selection={regionSelection} /> : <TextExplanationPanel key={`${selectedId ?? "none"}:${textSelection?.selectedText ?? ""}`} paper={selectedPaper} selection={textSelection} />}
+        <aside className="assistant-panel" aria-label="AI 阅读助手">
+          <div className="side-tabs"><button type="button" className={sideTab === "chat" ? "active" : ""} onClick={() => setSideTab("chat")}>问答</button><button type="button" className={sideTab === "explain" ? "active" : ""} onClick={() => setSideTab("explain")}>解释</button><button type="button" className={sideTab === "notes" ? "active" : ""} onClick={() => setSideTab("notes")}>笔记</button><button type="button" className={sideTab === "card" ? "active" : ""} onClick={() => setSideTab("card")}>速读</button></div>
+          {sideTab === "chat" ? <ChatPanel paper={selectedPaper} textModelConfigured={settingsStatus?.text_model.configured ?? null} onNavigatePage={(page) => { setTargetPage(page); }} /> : sideTab === "notes" ? <NotesPanel paper={selectedPaper} onNavigatePage={(page) => setTargetPage(page)} /> : sideTab === "card" ? <CardPanel paper={selectedPaper} textModelConfigured={settingsStatus?.text_model.configured ?? null} onNavigatePage={(page) => setTargetPage(page)} /> : regionSelection && selectedPaper ? <RegionExplanationPanel key={`${selectedId}:${regionSelection.page}:${regionSelection.bbox.join(",")}`} paper={selectedPaper} selection={regionSelection} visionModelConfigured={settingsStatus?.vision_model.configured ?? null} /> : <TextExplanationPanel key={`${selectedId ?? "none"}:${textSelection?.page ?? "none"}:${textSelection?.selectedText ?? ""}`} paper={selectedPaper} selection={textSelection} textModelConfigured={settingsStatus?.text_model.configured ?? null} />}
         </aside>
       </main>
-      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+      <button
+        type="button"
+        className="navigation-edge-toggle"
+        aria-label={navigationOpen ? "隐藏左侧导航" : "展开左侧导航"}
+        aria-controls="workspace-navigation"
+        aria-expanded={navigationOpen}
+        title={navigationOpen ? "隐藏导航" : "展开导航"}
+        onClick={() => setNavigationOpen((open) => !open)}
+      ><span>{navigationOpen ? <ChevronLeft size={15} /> : <ChevronRight size={15} />}</span></button>
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onStatusChange={setSettingsStatus} />}
     </div>
   );
 }

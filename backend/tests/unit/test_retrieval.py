@@ -92,6 +92,38 @@ def test_retrieval_is_isolated_by_paper_and_fuses_sparse_and_vector(tmp_path) ->
     assert all("another paper" not in item.text for item in results)
 
 
+def test_chinese_section_question_prioritizes_english_abstract(tmp_path) -> None:
+    database = Database(tmp_path / "paperwise.db")
+    database.migrate()
+    paper_id = "a" * 64
+    with database.connect() as connection:
+        insert_paper(connection, paper_id)
+        insert_chunk(
+            connection,
+            paper_id,
+            "1-01",
+            1,
+            "Abstract\nThis paper presents the actual research summary.",
+            (0.0, 1.0),
+        )
+        for page in range(2, 8):
+            insert_chunk(
+                connection,
+                paper_id,
+                f"{page}-01",
+                page,
+                f"Reference material on page {page}.",
+                (1.0, 0.0),
+            )
+
+    results = RetrievalService(database, FakeEmbedder()).retrieve(
+        paper_id, "把这篇论文的摘要翻译成中文"
+    )
+
+    assert results[0].chunk_id == "1-01"
+    assert len(results) == 6
+
+
 def test_retrieval_returns_empty_for_paper_without_chunks(tmp_path) -> None:
     database = Database(tmp_path / "paperwise.db")
     database.migrate()

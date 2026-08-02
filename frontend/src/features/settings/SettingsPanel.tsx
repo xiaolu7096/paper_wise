@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { getSettingsStatus, updateSettings } from "../../api/client";
+import { getSettingsStatus, updateSettings, type SettingsStatus } from "../../api/client";
 
 interface ModelForm {
   enabled: boolean;
@@ -12,7 +12,7 @@ interface ModelForm {
 
 const emptyModel: ModelForm = { enabled: false, baseUrl: "", model: "", apiKey: "" };
 
-export function SettingsPanel({ onClose }: { onClose: () => void }) {
+export function SettingsPanel({ onClose, onStatusChange }: { onClose: () => void; onStatusChange?: (status: SettingsStatus) => void }) {
   const [text, setText] = useState<ModelForm>(emptyModel);
   const [vision, setVision] = useState<ModelForm>(emptyModel);
   const [message, setMessage] = useState<string | null>(null);
@@ -35,6 +35,14 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "设置读取失败"));
   }, []);
 
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
   const valid = (value: ModelForm) =>
     !value.enabled || Boolean(value.baseUrl.trim() && value.model.trim() && value.apiKey.trim());
 
@@ -46,7 +54,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     setSaving(true);
     setMessage(null);
     try {
-      await updateSettings({
+      const status = await updateSettings({
         text_model: text.enabled ? {
           base_url: text.baseUrl.trim(), model: text.model.trim(), api_key: text.apiKey.trim(),
         } : null,
@@ -54,6 +62,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           base_url: vision.baseUrl.trim(), model: vision.model.trim(), api_key: vision.apiKey.trim(),
         } : null,
       });
+      onStatusChange?.(status);
       setMessage("设置已保存");
       setText((value) => ({ ...value, apiKey: "" }));
       setVision((value) => ({ ...value, apiKey: "" }));
@@ -84,7 +93,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   return (
     <div className="settings-overlay" role="dialog" aria-modal="true" aria-label="模型设置">
       <div className="settings-panel">
-        <header><h2>模型设置</h2><button type="button" className="icon-button" aria-label="关闭设置" onClick={onClose}><X size={18} /></button></header>
+        <header><h2>模型设置</h2><button type="button" className="icon-button ghost" aria-label="关闭设置" title="关闭设置" onClick={onClose}><X size={18} /></button></header>
         {modelSection("文本模型", text, setText)}
         {modelSection("视觉模型", vision, setVision)}
         {message && <div role="status" className="settings-message">{message}</div>}

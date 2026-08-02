@@ -149,7 +149,22 @@ describe("PdfReader", () => {
     await waitFor(() => expect(document.pages[0].getTextContent).toHaveBeenCalledTimes(1));
 
     fireEvent.change(screen.getByLabelText("当前页"), { target: { value: "2" } });
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByLabelText("当前页"), { key: "Enter" });
     expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
     expect(screen.getByLabelText("当前页")).toHaveValue(2);
+  });
+
+  it("exits region selection with Escape", async () => {
+    const document = fakeDocument(1);
+    vi.mocked(getDocument).mockReturnValue(loadingTask(document) as never);
+    render(<PdfReader fileUrl="paper.pdf" filename="paper.pdf" />);
+    await screen.findByLabelText("PDF page 1");
+
+    const regionButton = screen.getByRole("button", { name: "框选区域" });
+    fireEvent.click(regionButton);
+    expect(regionButton).toHaveAttribute("aria-pressed", "true");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(regionButton).toHaveAttribute("aria-pressed", "false");
   });
 });

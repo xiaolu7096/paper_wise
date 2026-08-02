@@ -3,18 +3,28 @@ import { useEffect, useState } from "react";
 
 import { assetUrl, createAnnotation, deleteAnnotation, getAnnotations, type Annotation, type Paper } from "../../api/client";
 
-export function NotesPanel({ paper }: { paper: Paper | null }) {
+const annotationKindLabel: Record<Annotation["kind"], string> = {
+  note: "普通笔记",
+  text: "文本选区",
+  region: "区域截图",
+};
+
+export function NotesPanel({ paper, onNavigatePage }: { paper: Paper | null; onNavigatePage: (page: number) => void }) {
   const [items, setItems] = useState<Annotation[]>([]);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const load = async () => {
+  useEffect(() => {
+    let active = true;
+    setItems([]);
+    setNote("");
+    setError(null);
     if (!paper) return;
-    try { setItems(await getAnnotations(paper.paper_id)); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "笔记加载失败"); }
-  };
-
-  useEffect(() => { setItems([]); setNote(""); setError(null); void load(); }, [paper?.paper_id]);
+    void getAnnotations(paper.paper_id)
+      .then((annotations) => { if (active) setItems(annotations); })
+      .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "笔记加载失败"); });
+    return () => { active = false; };
+  }, [paper?.paper_id]);
 
   if (!paper) return <div className="panel-empty">请先选择论文</div>;
   return <div className="notes-panel">
@@ -30,7 +40,7 @@ export function NotesPanel({ paper }: { paper: Paper | null }) {
     </form>
     {error && <div role="alert" className="error-banner">{error}</div>}
     <div className="annotation-list">{items.map((item) => <article key={item.annotation_id}>
-      <header><span>{item.page ? `第 ${item.page} 页` : "论文笔记"}</span><button type="button" aria-label="删除笔记" onClick={() => void deleteAnnotation(paper.paper_id, item.annotation_id).then(() => setItems((current) => current.filter((value) => value.annotation_id !== item.annotation_id)))}><Trash2 size={14} /></button></header>
+      <header><span className="annotation-meta"><span className={`annotation-kind ${item.kind}`}>{annotationKindLabel[item.kind]}</span>{item.page ? <button type="button" className="annotation-page" onClick={() => onNavigatePage(item.page!)}>第 {item.page} 页</button> : <span>论文笔记</span>}</span><button type="button" className="annotation-delete" aria-label="删除笔记" title="删除笔记" onClick={() => void deleteAnnotation(paper.paper_id, item.annotation_id).then(() => setItems((current) => current.filter((value) => value.annotation_id !== item.annotation_id)))}><Trash2 size={14} /></button></header>
       {item.selected_text && <blockquote>{item.selected_text}</blockquote>}
       {item.ai_explanation && <p>{item.ai_explanation}</p>}
       {item.note && <p>{item.note}</p>}

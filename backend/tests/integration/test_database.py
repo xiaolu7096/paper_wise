@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from app.db.database import Database
+from app.db.database import MIGRATIONS_DIR, Database
 
 PAPER_A = "a" * 64
 PAPER_B = "b" * 64
@@ -45,6 +45,55 @@ def test_migrations_are_idempotent_and_enable_required_pragmas(tmp_path) -> None
         } <= tables
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 2
+
+
+def test_user_migration_upgrades_database_with_existing_tasks(tmp_path) -> None:
+    database = Database(tmp_path / "paperwise.db")
+    with database.connect() as connection:
+        connection.execute(
+            """
+            CREATE TABLE schema_migrations (
+                version TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            )
+            """
+        )
+        for statement in database._statements(
+            (MIGRATIONS_DIR / "0001_initial.sql").read_text(encoding="utf-8")
+        ):
+            connection.execute(statement)
+        connection.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            ("0001_initial.sql", NOW),
+        )
+        insert_paper(connection, PAPER_A)
+        connection.execute(
+            """
+            INSERT INTO tasks (
+                task_id, paper_id, kind, status, stage, progress, created_at, updated_at
+            ) VALUES ('11111111-1111-4111-8111-111111111111', ?, 'ingest',
+                      'succeeded', 'completed', 100, ?, ?)
+            """,
+            (PAPER_A, NOW, NOW),
+        )
+
+    database.migrate()
+
+    with database.connect() as connection:
+        local_user_id = "00000000-0000-4000-8000-000000000000"
+        task = connection.execute(
+            "SELECT user_id FROM tasks WHERE task_id = ?",
+            ("11111111-1111-4111-8111-111111111111",),
+        ).fetchone()
+        user_id_column = next(
+            row for row in connection.execute("PRAGMA table_info(tasks)")
+            if row["name"] == "user_id"
+        )
+        assert task["user_id"] == local_user_id
+        assert user_id_column["dflt_value"] == f"'{local_user_id}'"
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 2
 
 

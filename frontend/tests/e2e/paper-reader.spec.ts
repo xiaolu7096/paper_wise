@@ -72,7 +72,7 @@ test("uploads, reads, switches, and restores local papers", async ({ page }) => 
 
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: `删除 ${secondName}` }).click();
-  await expect(page.getByText("尚未添加论文")).toBeVisible();
+  await expect(page.getByLabel("PDF 阅读器").getByText("尚未添加论文")).toBeVisible();
 
   await input.setInputFiles({
     name: firstName,

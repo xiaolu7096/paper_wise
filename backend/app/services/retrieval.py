@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 
 import numpy as np
@@ -5,6 +6,20 @@ import numpy as np
 from app.db.database import Database
 from app.services.embeddings import Embedder
 from app.services.text_index import is_han, search_terms
+
+
+SECTION_INTENTS = (
+    (re.compile(r"摘要|\babstract\b", re.IGNORECASE), {"abstract", "摘要"}),
+    (re.compile(r"引言|\bintroduction\b", re.IGNORECASE), {"introduction", "引言"}),
+    (
+        re.compile(r"方法|\bmethods?\b|\bmethodology\b", re.IGNORECASE),
+        {"method", "methods", "methodology", "方法"},
+    ),
+    (re.compile(r"实验|\bexperiments?\b", re.IGNORECASE), {"experiment", "experiments", "实验"}),
+    (re.compile(r"结果|\bresults?\b", re.IGNORECASE), {"result", "results", "结果"}),
+    (re.compile(r"结论|\bconclusions?\b", re.IGNORECASE), {"conclusion", "conclusions", "结论"}),
+)
+SECTION_NUMBER = re.compile(r"^\d+(?:\.\d+)*[.)]?\s+")
 
 
 @dataclass(frozen=True)
@@ -32,6 +47,29 @@ def fts_match_query(question: str) -> str | None:
     if not tokens:
         return None
     return " OR ".join(f'"{token.replace(chr(34), chr(34) * 2)}"' for token in tokens)
+
+
+def section_chunk_ids(question: str, rows) -> list[str]:
+    headings = {
+        heading
+        for intent, names in SECTION_INTENTS
+        if intent.search(question)
+        for heading in names
+    }
+    if not headings:
+        return []
+
+    def contains_heading(text: str) -> bool:
+        return any(
+            SECTION_NUMBER.sub("", line.strip().casefold()) in headings
+            for line in text.splitlines()
+        )
+
+    return [
+        row["chunk_id"]
+        for row in rows
+        if contains_heading(row["text"])
+    ]
 
 
 class RetrievalService:
@@ -89,9 +127,16 @@ class RetrievalService:
                 ]
 
         by_id = {row["chunk_id"]: row for row in rows}
+        fused = rrf([vector_ranking, sparse_ranking])
+        section_ranking = section_chunk_ids(question, rows)
+        section_ids = set(section_ranking)
+        ranking = [(chunk_id, 1.0) for chunk_id in section_ranking]
+        ranking.extend(
+            (chunk_id, score) for chunk_id, score in fused if chunk_id not in section_ids
+        )
         selected: list[RetrievedChunk] = []
         tokens = 0
-        for chunk_id, score in rrf([vector_ranking, sparse_ranking]):
+        for chunk_id, score in ranking:
             row = by_id[chunk_id]
             if selected and tokens + row["token_count"] > token_limit:
                 continue

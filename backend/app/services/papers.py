@@ -62,7 +62,7 @@ class PaperService:
         temporary = self.data_dir / "tmp" / f"{uuid4()}.upload"
         temporary.parent.mkdir(parents=True, exist_ok=True)
         try:
-            paper_id, size = self._copy_and_hash(uploaded, temporary)
+            content_hash, size = self._copy_and_hash(uploaded, temporary)
             with temporary.open("rb") as uploaded_file:
                 signature = uploaded_file.read(5)
             if size < 5 or signature != b"%PDF-":
@@ -77,6 +77,7 @@ class PaperService:
             except Exception as error:
                 raise AppError(400, "INVALID_PDF", "The uploaded file is not a valid PDF") from error
 
+            paper_id = self._paper_id(content_hash)
             existing = self._global_paper(paper_id)
             if existing:
                 self._ensure_owner(paper_id)
@@ -332,6 +333,16 @@ class PaperService:
 
     def _paper_path(self, paper_id: str) -> Path:
         return self.data_dir / "papers" / paper_id / "original.pdf"
+
+    def _paper_id(self, content_hash: str) -> str:
+        if self.user_id == LOCAL_USER_ID or self.get_optional(content_hash) is not None:
+            return content_hash
+        digest = hashlib.sha256()
+        digest.update(b"paperwise:user-paper:v1\0")
+        digest.update(self.user_id.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(bytes.fromhex(content_hash))
+        return digest.hexdigest()
 
     @staticmethod
     def _filename(raw: str | None) -> str:

@@ -37,23 +37,49 @@ class AuthService:
     ) -> AuthUser:
         now = utc_now()
         user_id = str(uuid4())
-        has_real_user = self.has_real_user()
-        if has_real_user and (actor is None or actor.role != "admin"):
-            raise AppError(403, "FORBIDDEN", "Administrator privileges are required")
-        role = "admin" if not has_real_user else "user"
+        password_hash = self._hash_password(password)
         try:
             with self.database.connect() as connection:
                 with self.database.transaction(connection):
+                    has_real_user = connection.execute(
+                        "SELECT 1 FROM users WHERE user_id != ? LIMIT 1",
+                        (LOCAL_USER_ID,),
+                    ).fetchone() is not None
+                    if has_real_user and (actor is None or actor.role != "admin"):
+                        raise AppError(
+                            403,
+                            "FORBIDDEN",
+                            "Administrator privileges are required",
+                        )
+                    role = "admin" if not has_real_user else "user"
                     connection.execute(
                         """
                         INSERT INTO users (user_id, username, password_hash, role, created_at)
                         VALUES (?, ?, ?, ?, ?)
                         """,
-                        (user_id, username, self._hash_password(password), role, now),
+                        (user_id, username, password_hash, role, now),
                     )
+                    if not has_real_user:
+                        self._adopt_local_data(connection, user_id)
         except sqlite3.IntegrityError as error:
             raise AppError(409, "USER_ALREADY_EXISTS", "User already exists") from error
         return AuthUser(user_id=user_id, username=username, role=role, created_at=now)
+
+    @staticmethod
+    def _adopt_local_data(connection: sqlite3.Connection, user_id: str) -> None:
+        for table in (
+            "user_papers",
+            "tasks",
+            "messages",
+            "assets",
+            "annotations",
+            "cards",
+            "user_model_settings",
+        ):
+            connection.execute(
+                f"UPDATE {table} SET user_id = ? WHERE user_id = ?",
+                (user_id, LOCAL_USER_ID),
+            )
 
     def login(self, username: str, password: str) -> tuple[AuthUser, SessionCookie]:
         with self.database.connect() as connection:

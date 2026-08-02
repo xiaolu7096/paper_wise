@@ -91,6 +91,20 @@ def test_question_is_strictly_conditional(tmp_path) -> None:
     assert send(app, body(instruction="question", question="why")).status_code == 200
 
 
+def test_all_text_actions_require_simplified_chinese(tmp_path) -> None:
+    app, model = make_app(tmp_path)
+
+    for instruction, question in (
+        ("explain", None),
+        ("summarize", None),
+        ("question", "why"),
+    ):
+        response = send(app, body(instruction=instruction, question=question))
+
+        assert response.status_code == 200
+        assert "Simplified Chinese (简体中文)" in model.messages[0]["content"]
+
+
 def test_page_and_configuration_and_model_errors(tmp_path) -> None:
     app, model = make_app(tmp_path)
     response = send(app, body(page=3))
