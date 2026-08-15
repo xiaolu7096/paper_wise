@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  CircleHelp,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -390,6 +391,7 @@ export function App() {
                 className={settingsOpen ? "active" : ""}
                 onClick={() => setSettingsOpen(true)}
               ><Settings size={18} /><span>API 配置</span></button>
+              <a href="/tutorial.html"><CircleHelp size={18} /><span>使用指南</span></a>
               <button
                 type="button"
                 className={navigationView === "account" && !settingsOpen ? "active" : ""}

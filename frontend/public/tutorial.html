@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PaperWise 使用指南</title>
+  <style>
+    :root {
+      font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+      color: #252b35;
+      background: #f3f4f6;
+      --bg: #f3f4f6;
+      --panel: #f8f9fb;
+      --surface: #ffffff;
+      --muted: #687080;
+      --border: #d8dce3;
+      --border-strong: #b9c1ce;
+      --primary: #214288;
+      --primary-soft: #e4f0fb;
+      --sky: #aad3f6;
+      --warm: #f0cbc5;
+      --warm-soft: #fbefed;
+      --warning: #8a6540;
+      --warning-soft: #f3e8da;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; min-width: 320px; background: var(--bg); }
+    a { color: inherit; }
+    a:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+
+    .topbar {
+      position: sticky;
+      z-index: 10;
+      top: 0;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--border);
+      background: rgb(248 249 251 / 96%);
+      backdrop-filter: blur(8px);
+    }
+
+    .brand { display: flex; align-items: center; }
+    .brand img { width: 113px; height: 22px; display: block; object-fit: contain; }
+    .back-link { min-height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 9px; border-radius: 6px; color: var(--muted); font-size: 13px; text-decoration: none; }
+    .back-link:hover { background: var(--primary-soft); color: var(--primary); }
+    .back-link svg { width: 17px; height: 17px; }
+
+    .layout {
+      width: min(1420px, 100%);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 224px minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .toc {
+      position: sticky;
+      top: 56px;
+      height: calc(100vh - 56px);
+      padding: 28px 18px;
+      border-right: 1px solid var(--border);
+      background: var(--panel);
+    }
+
+    .toc strong { display: block; margin: 0 8px 14px; font-size: 13px; }
+    .toc nav { display: grid; gap: 4px; }
+    .toc a {
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 8px;
+      border-radius: 6px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+    }
+    .toc a:hover { background: var(--primary-soft); color: var(--primary); }
+    .toc-number {
+      flex: 0 0 22px;
+      width: 22px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      background: var(--surface);
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    main { min-width: 0; padding: 42px clamp(24px, 5vw, 72px) 72px; background: var(--surface); }
+    .intro { max-width: 800px; padding-bottom: 40px; }
+    .eyebrow { margin: 0 0 8px; color: var(--primary); font-size: 12px; font-weight: 750; }
+    h1 { margin: 0; color: #1d2530; font-size: 30px; line-height: 1.25; }
+    .intro > p { margin: 14px 0 0; color: var(--muted); font-size: 15px; line-height: 1.7; }
+    .route {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 20px;
+      color: var(--primary);
+      font-size: 12px;
+    }
+    .route span { padding: 5px 8px; border-radius: 999px; background: var(--primary-soft); }
+
+    .step {
+      scroll-margin-top: 76px;
+      padding: 42px 0 50px;
+      border-top: 1px solid var(--border);
+    }
+    .step-heading { max-width: 820px; display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 14px; }
+    .step-index {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--primary);
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 750;
+      font-variant-numeric: tabular-nums;
+    }
+    h2 { margin: 1px 0 6px; color: #1d2530; font-size: 22px; }
+    .step-summary { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
+
+    .instructions { max-width: 840px; margin: 22px 0 26px 52px; padding: 0; list-style: none; counter-reset: action; }
+    .instructions li {
+      position: relative;
+      margin: 0;
+      padding: 9px 0 9px 30px;
+      color: #3a4350;
+      font-size: 14px;
+      line-height: 1.65;
+      counter-increment: action;
+    }
+    .instructions li::before {
+      content: counter(action);
+      position: absolute;
+      top: 11px;
+      left: 0;
+      width: 19px;
+      height: 19px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--primary-soft);
+      color: var(--primary);
+      font-size: 10px;
+      font-weight: 750;
+    }
+    code { padding: 2px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); font-family: Consolas, monospace; font-size: 12px; }
+
+    .notice {
+      max-width: 840px;
+      margin: 4px 0 26px 52px;
+      padding: 11px 13px;
+      border-left: 3px solid var(--warning);
+      background: var(--warning-soft);
+      color: #735333;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .notice.info { border-left-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+
+    figure { margin: 22px 0 0; }
+    .shot-link { display: block; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel); }
+    .shot-link:hover { border-color: var(--sky); box-shadow: 0 4px 16px rgb(33 66 136 / 10%); }
+    figure img { width: 100%; height: auto; display: block; }
+    figcaption { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .figure-label { color: var(--primary); font-weight: 700; }
+
+    .extras {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 24px;
+    }
+    .extra {
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel);
+    }
+    .extra h3 { margin: 0 0 7px; color: var(--primary); font-size: 15px; }
+    .extra p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+
+    .finish {
+      margin-top: 42px;
+      padding: 22px 0 0;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    @media (max-width: 820px) {
+      .topbar { padding: 0 16px; }
+      .back-link { width: 34px; padding: 0; justify-content: center; }
+      .back-link span { display: none; }
+      .layout { display: block; }
+      .toc { position: static; height: auto; padding: 12px 14px; border-right: 0; border-bottom: 1px solid var(--border); overflow-x: auto; }
+      .toc strong { display: none; }
+      .toc nav { width: max-content; display: flex; }
+      .toc a { min-height: 34px; white-space: nowrap; }
+      main { padding: 30px 18px 54px; }
+      h1 { font-size: 26px; }
+      .step { scroll-margin-top: 56px; padding: 34px 0 42px; }
+      .instructions, .notice { margin-left: 0; }
+      .extras { grid-template-columns: 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .shot-link { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="PaperWise 首页"><img src="./tutorial-assets/paperwise-brand.png" alt="PaperWise" /></a>
+    <a class="back-link" href="/" title="返回 PaperWise 阅读器" aria-label="返回 PaperWise 阅读器">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7" /><path d="M19 12H5" /></svg>
+      <span>返回阅读器</span>
+    </a>
+  </header>
+
+  <div class="layout">
+    <aside class="toc" aria-label="教程目录">
+      <strong>快速开始</strong>
+      <nav>
+        <a href="#upload"><span class="toc-number">01</span>上传论文</a>
+        <a href="#reader"><span class="toc-number">02</span>阅读控制</a>
+        <a href="#api"><span class="toc-number">03</span>配置 API</a>
+        <a href="#speed"><span class="toc-number">04</span>AI 速读</a>
+        <a href="#explain"><span class="toc-number">05</span>选区解释</a>
+        <a href="#organize"><span class="toc-number">06</span>问答与笔记</a>
+      </nav>
+    </aside>
+
+    <main>
+      <header class="intro">
+        <p class="eyebrow">PAPERWISE GUIDE</p>
+        <h1>从上传论文到整理笔记</h1>
+        <p>按照下面 6 个步骤即可完成一次完整阅读。截图可点击查看原图；界面中的论文名称和模型名称仅作为示例。</p>
+        <div class="route" aria-label="教程流程">
+          <span>上传</span><span>阅读</span><span>配置</span><span>速读</span><span>解释</span><span>整理</span>
+        </div>
+      </header>
+
+      <section class="step" id="upload">
+        <div class="step-heading">
+          <span class="step-index">01</span>
+          <div><h2>上传并打开论文</h2><p class="step-summary">PDF 上传后会立即进入阅读器，解析任务在后台继续执行。</p></div>
+        </div>
+        <ol class="instructions">
+          <li>在左侧“论文库”点击“上传”，选择本地 PDF 文件。</li>
+          <li>论文会立即出现在列表中；处理中仍可阅读原始 PDF。</li>
+          <li>进度胶囊显示解析状态。状态变为“已就绪”后，问答和 AI 速读可用。</li>
+        </ol>
+        <figure>
+          <a class="shot-link" href="./tutorial-assets/01-upload-entry.png" target="_blank" rel="noreferrer"><img src="./tutorial-assets/01-upload-entry.png" alt="论文库为空时的上传入口" /></a>
+          <figcaption><span class="figure-label">图 1</span> 左侧论文库的上传入口。</figcaption>
+        </figure>
+        <figure>
+          <a class="shot-link" href="./tutorial-assets/02-upload-progress.png" target="_blank" rel="noreferrer"><img src="./tutorial-assets/02-upload-progress.png" alt="论文上传后显示处理进度" loading="lazy" /></a>
+          <figcaption><span class="figure-label">图 2</span> 上传完成后，列表显示页数、处理状态和解析进度。</figcaption>
+        </figure>
+      </section>
+
+      <section class="step" id="reader">
+        <div class="step-heading">
+          <span class="step-index">02</span>
+          <div><h2>翻页与调整页面</h2><p class="step-summary">PDF 工具栏保持纯图标，通过页码、适配和缩放控制阅读视图。</p></div>
+        </div>
+        <ol class="instructions">
+          <li>使用左右箭头翻页，也可以输入页码后按 Enter 或点击输入框外提交。</li>
+          <li>横向双箭头用于“适合宽度”，对角箭头用于“适合页面”。</li>
+          <li>使用减号和加号缩放；中间百分比显示当前缩放比例。</li>
+        </ol>
+        <figure>
+          <a class="shot-link" href="./tutorial-assets/03-reader-controls.png" target="_blank" rel="noreferrer"><img src="./tutorial-assets/03-reader-controls.png" alt="PDF 翻页、适合宽度、适合页面和缩放工具栏" loading="lazy" /></a>
+          <figcaption><span class="figure-label">图 3</span> 从左到右依次为翻页、区域框选、适合宽度、适合页面和缩放控制。</figcaption>
+        </figure>
+      </section>
+
+      <section class="step" id="api">
+        <div class="step-heading">
+          <span class="step-index">03</span>
+          <div><h2>配置 AI 模型</h2><p class="step-summary">以 DeepSeek 文本模型为例；模型地址、模型名和 API Key 均以服务商控制台为准。</p></div>
+        </div>
+        <ol class="instructions">
+          <li>打开左侧“API 配置”，在“文本模型”中勾选“启用”。</li>
+          <li>DeepSeek 示例 Base URL 填写 <code>https://api.deepseek.com</code>。</li>
+          <li>填写控制台提供的当前模型名和 API Key，然后保存设置。</li>
+          <li>已保存的密钥不会回显；再次保存启用中的模型时需要重新输入 API Key。</li>
+        </ol>
+        <p class="notice">DeepSeek 在本教程中仅作为文本模型示例，用于问答、文本解释和速读。区域截图解释需要在“视觉模型”中配置支持图片输入的 OpenAI-compatible 服务。</p>
+        <figure>
+          <a class="shot-link" href="./tutorial-assets/07-api-settings.png" target="_blank" rel="noreferrer"><img src="./tutorial-assets/07-api-settings.png" alt="PaperWise 文本模型和视觉模型配置窗口" loading="lazy" /></a>
+          <figcaption><span class="figure-label">图 4</span> 在 PaperWise 中分别配置文本模型和视觉模型。</figcaption>
+        </figure>
+        <figure>
+          <a class="shot-link" href="./tutorial-assets/08-deepseek-reference.png" target="_blank" rel="noreferrer"><img src="./tutorial-assets/08-deepseek-reference.png" alt="DeepSeek API 文档中的 Base URL 和模型名示例" loading="lazy" /></a>
+          <figcaption><span class="figure-label">图 5</span> 从服务商官方文档确认 Base URL、模型名并申请 API Key。</figcaption>
+        </figure>
+      </section>
+
+      <section class="step" id="speed">
+        <div class="step-heading">
+          <span class="step-index">04</span>
+          <div><h2>生成 AI 速读报告</h2><p class="step-summary">速读会生成一份带来源引用的连续 Markdown 报告。</p></div>
+        </div>
+        <ol class="instructions">
+          <li>确认论文状态为“已就绪”，并已配置文本模型。</li>
+          <li>打开右侧“速读”tab，点击“生成速读报告”。</li>
+          <li>生成完成后可点击引用跳转原文；右上刷新图标用于重新生成。</li>
+        </ol>
+        <p class="notice info">生成时间取决于论文长度和模型服务。生成过程中按钮会锁定，请等待完成，不需要重复点击。</p>
+        <figure>
+          <a class="shot-link" href="./tutorial-assets/04-speed-read.png" target="_blank" rel="noreferrer"><img src="./tutorial-assets/04-speed-read.png" alt="AI 速读报告生成状态" loading="lazy" /></a>
+          <figcaption><span class="figure-label">图 6</span> 速读生成中；完成后报告在右侧工作区独立滚动。</figcaption>
+        </figure>
+      </section>
+
+      <section class="step" id="explain">
+        <div class="step-heading">
+          <span class="step-index">05</span>
+          <div><h2>解释文字或页面区域</h2><p class="step-summary">文本选择适合段落和术语，区域框选适合图表、公式与混排内容。</p></div>
+        </div>
+        <ol class="instructions">
+          <li>直接拖动选择 PDF 文字，右侧会自动切到“解释”；可选择解释、总结或继续追问。</li>
+          <li>点击工具栏的区域框选图标，在 PDF 上拖出矩形区域，再输入问题并发送。</li>
+          <li>区域解释依赖视觉模型；按 Esc 可退出框选模式。</li>
+          <li>满意的解释可以保存，之后会出现在“笔记”tab 中。</li>
+        </ol>
+        <figure>
+          <a class="shot-link" href="./tutorial-assets/05-text-explain.png" target="_blank" rel="noreferrer"><img src="./tutorial-assets/05-text-explain.png" alt="选择 PDF 文字并在右侧解释" loading="lazy" /></a>
+          <figcaption><span class="figure-label">图 7</span> 文本选区支持解释、总结和针对选区追问。</figcaption>
+        </figure>
+        <figure>
+          <a class="shot-link" href="./tutorial-assets/06-region-explain.png" target="_blank" rel="noreferrer"><img src="./tutorial-assets/06-region-explain.png" alt="框选 PDF 页面区域并进行视觉解释" loading="lazy" /></a>
+          <figcaption><span class="figure-label">图 8</span> 框选图表或页面区域时，需要先启用视觉模型。</figcaption>
+        </figure>
+      </section>
+
+      <section class="step" id="organize">
+        <div class="step-heading">
+          <span class="step-index">06</span>
+          <div><h2>继续问答并整理笔记</h2><p class="step-summary">问答用于围绕整篇论文检索，笔记用于沉淀阅读结果并返回原文。</p></div>
+        </div>
+        <ol class="instructions">
+          <li>在“问答”中输入论文相关问题；论文必须已就绪且文本模型可用。</li>
+          <li>回答下方的来源标签可跳转到对应 PDF 页，便于核对原文。</li>
+          <li>在“笔记”中添加普通笔记，也可以保存文本解释和区域解释。</li>
+          <li>带页码的笔记可以点击页码返回原文；删除仅影响当前笔记，不会删除论文。</li>
+        </ol>
+        <div class="extras">
+          <article class="extra"><h3>论文问答</h3><p>每篇论文拥有独立会话。清空会话前会要求确认，引用页码始终来自当前论文。</p></article>
+          <article class="extra"><h3>笔记整理</h3><p>普通笔记、文本选区和区域截图使用不同标签，切换论文时不会混入其他论文内容。</p></article>
+        </div>
+      </section>
+
+      <footer class="finish">
+        完成以上步骤后，即可形成“阅读原文 → AI 辅助理解 → 核对来源 → 保存笔记”的完整流程。模型请求会把必要的文本片段或区域截图发送到你配置的模型服务。
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

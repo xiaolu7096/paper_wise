@@ -137,3 +137,22 @@ test("keeps the app fixed while the assistant scrolls independently", async ({ p
   expect(await assistant.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
+
+test("opens the standalone usage guide and returns to the reader", async ({ page }) => {
+  await page.goto("/");
+
+  const guideLink = page.getByRole("link", { name: "使用指南" });
+  await expect(guideLink).toHaveAttribute("href", "/tutorial.html");
+  await guideLink.click();
+
+  await expect(page).toHaveURL(/\/tutorial\.html$/);
+  await expect(page.getByRole("heading", { name: "从上传论文到整理笔记" })).toBeVisible();
+  await expect(page.locator(".brand img")).toHaveAttribute("src", "./tutorial-assets/paperwise-brand.png");
+
+  const backLink = page.getByRole("link", { name: "返回 PaperWise 阅读器" });
+  await expect(backLink).toHaveAttribute("href", "/");
+  await backLink.click();
+
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("link", { name: "使用指南" })).toBeVisible();
+});

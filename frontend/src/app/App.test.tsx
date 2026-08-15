@@ -205,6 +205,14 @@ describe("App", () => {
     expect(await screen.findByRole("dialog", { name: "模型设置" })).toBeInTheDocument();
   });
 
+  it("links to the standalone usage guide from the navigation", async () => {
+    vi.mocked(listPapers).mockResolvedValue([]);
+    render(<App />);
+    await waitFor(() => expect(listPapers).toHaveBeenCalledTimes(1));
+
+    expect(screen.getByRole("link", { name: "使用指南" })).toHaveAttribute("href", "/tutorial.html");
+  });
+
   it("filters the paper list without changing the selected paper", async () => {
     vi.mocked(listPapers).mockResolvedValue([first, second]);
     render(<App />);
