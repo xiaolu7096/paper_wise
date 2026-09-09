@@ -20,6 +20,7 @@ export type RegisterRequest = components["schemas"]["RegisterRequest"];
 type ErrorResponse = components["schemas"]["ErrorResponse"];
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "/api").replace(/\/$/, "");
+export const AUTH_REQUIRED_EVENT = "paperwise:auth-required";
 
 export class PaperwiseApiError extends Error {
   readonly code: string;
@@ -49,6 +50,13 @@ async function parseResponse<T>(response: Response): Promise<T> {
         details: null,
       },
     };
+  }
+  if (
+    body.error.code === "AUTH_REQUIRED"
+    && !/\/auth(?:\/|$)/.test(response.url)
+    && typeof window !== "undefined"
+  ) {
+    window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
   }
   throw new PaperwiseApiError(response.status, body);
 }

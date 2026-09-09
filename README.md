@@ -1,3 +1,97 @@
+# paperwise_v1.5
+
+PaperWise v1.5 是面向中文用户的 AI 论文阅读辅助工作台。当前版本已完成核心功能优化、公开部署适配、域名解析与生产环境部署，可通过 HTTPS 域名为本人及少量受邀用户提供服务，同时保留本地开发模式。
+
+> 本章节描述当前 v1.5 的最终状态，优先于下方保留的早期本地 MVP 说明。下方原有内容未删除，主要用于查阅项目初始结构、本地启动方式和历史设计边界。
+
+## 当前能力
+
+- PDF 论文上传、解析、按页阅读、页码跳转、缩放和全文索引。
+- 基于 `multilingual-e5-small`、FTS5 与 RRF 的混合检索，支持中文问题检索英文论文。
+- 带真实页码和原文摘录的论文问答；摘要、引言、方法、实验、结果和结论等章节问题会优先召回对应内容。
+- 简体中文问答、文字解释、选区总结和追问，保留必要的专有名词、公式与技术术语。
+- PDF 文字选区解释、页面区域截图解释，以及解释结果和普通笔记的保存与管理。
+- 根据论文类型生成带来源引用的连续 Markdown 中文速读报告。
+- 论文搜索、切换和删除；删除论文时同步清理其 PDF、索引、问答、速读、笔记及截图资产。
+- 文本模型与视觉模型独立配置，兼容 OpenAI Chat Completions 接口。
+- 登录、退出、首次管理员初始化、少量受邀用户和用户级资源隔离。
+- 每个用户的模型 API Key 使用服务端主密钥加密保存。
+- 独立使用指南页面：生产站点的 `/tutorial.html`。
+
+## 最终部署形态
+
+生产环境采用以下最小架构：
+
+```text
+Browser
+   |
+   | HTTPS
+   v
+Caddy
+   |-- /        -> React 静态应用
+   |-- /api/*   -> FastAPI
+   |
+   +-- 自动申请和续期 TLS 证书
+
+FastAPI
+   |-- SQLite + 本地 PDF/截图持久化
+   |-- 进程内论文解析任务队列
+   +-- 用户配置的文本模型与视觉模型
+```
+
+- Docker Compose 统一运行前端、Caddy 和 FastAPI。
+- 前后端同域部署，浏览器通过 `/api` 访问后端，避免跨域 Cookie 和公网端口暴露。
+- Caddy 根据 `PAPERWISE_SITE_ADDRESS` 提供域名访问和自动 HTTPS。
+- 业务数据保存在宿主机 `data/`；embedding 模型、Caddy 证书与配置使用独立 volume。
+- 当前部署定位为不超过 5 人的小范围受邀版本，继续使用 SQLite 和单进程任务队列。
+
+生产域名、API Key、加密主密钥等配置仅存在于服务器 `.env`，不会提交到仓库。主应用、健康检查和使用指南的访问路径分别为：
+
+```text
+https://<生产域名>/
+https://<生产域名>/api/health
+https://<生产域名>/tutorial.html
+```
+
+## 生产部署
+
+准备 Linux 服务器、Docker、Docker Compose、已解析到服务器的域名以及开放的 80/443 端口。复制并填写环境变量：
+
+```bash
+cp .env.example .env
+```
+
+公网部署至少需要配置：
+
+```env
+PAPERWISE_AUTH_ENABLED=true
+PAPERWISE_FRONTEND_ORIGIN=https://你的域名
+PAPERWISE_PUBLIC_HOST=你的域名
+PAPERWISE_SESSION_COOKIE_SECURE=true
+PAPERWISE_SITE_ADDRESS=你的域名
+PAPERWISE_KEY_ENCRYPTION_KEY=你的Fernet主密钥
+```
+
+构建并启动：
+
+```bash
+docker compose up -d --build
+curl https://你的域名/api/health
+```
+
+完整的首次管理员、模型缓存、备份恢复和故障处理说明见 `部署说明.md`。
+
+## 数据与安全边界
+
+- 公网模式必须启用登录鉴权、HTTPS 和安全 Cookie；后端仅由 Caddy 在容器网络中访问。
+- 论文、任务、问答、速读、笔记、截图和模型配置均按用户隔离。
+- 应用日志不得记录论文原文、用户问题、模型回答、密码或 API Key。
+- 日常备份需要覆盖整个 `data/` 目录；不要使用 `docker compose down -v` 清除生产 volumes。
+- 模型调用会将必要的论文片段或区域图片发送到用户配置的模型服务，使用者应自行确认对应服务的隐私政策。
+- 当前版本不提供开放注册、密码找回、团队空间、共享论文库、公开分享链接、协作批注或计费能力。
+
+---
+
 # PaperWise v1.5
 
 PaperWise 是一个本地优先的 AI 论文阅读辅助工作台。MVP 已实现 PDF 阅读、按页索引、带来源问答、文字与区域解释、笔记和自适应中文速读报告。

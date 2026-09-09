@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { deletePaper, explainRegion, getCurrentUser, login, uploadPaper } from "./client";
+import {
+  AUTH_REQUIRED_EVENT,
+  deletePaper,
+  explainRegion,
+  getCurrentUser,
+  listPapers,
+  login,
+  uploadPaper,
+} from "./client";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -59,6 +67,35 @@ describe("auth requests", () => {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
     });
+  });
+
+  it("only broadcasts expired authentication for protected requests", async () => {
+    const listener = vi.fn();
+    window.addEventListener(AUTH_REQUIRED_EVENT, listener);
+    const errorBody = {
+      error: { code: "AUTH_REQUIRED", message: "Auth required", details: null },
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        url: "http://test/api/auth/me",
+        json: async () => errorBody,
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        url: "http://test/api/papers",
+        json: async () => errorBody,
+      } as Response);
+
+    await expect(getCurrentUser()).rejects.toMatchObject({ code: "AUTH_REQUIRED" });
+    expect(listener).not.toHaveBeenCalled();
+    await expect(listPapers()).rejects.toMatchObject({ code: "AUTH_REQUIRED" });
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener(AUTH_REQUIRED_EVENT, listener);
+    fetchMock.mockRestore();
   });
 });
 

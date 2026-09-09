@@ -42,6 +42,7 @@ import {
   logout,
   PaperwiseApiError,
   uploadPaper,
+  AUTH_REQUIRED_EVENT,
 } from "../api/client";
 
 const first: Paper = {
@@ -100,15 +101,49 @@ beforeEach(() => {
 });
 
 describe("App", () => {
-  it("shows the login form and delays paper loading when unauthenticated", async () => {
+  it("shows the visitor workspace and login dialog without loading protected data", async () => {
     vi.mocked(getCurrentUser).mockRejectedValue(new PaperwiseApiError(401, {
       error: { code: "AUTH_REQUIRED", message: "Auth required", details: null },
     }));
 
     render(<App />);
 
-    expect(await screen.findByRole("button", { name: "登录" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "登录 PaperWise" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "全局导航" })).toBeInTheDocument();
+    expect(screen.getByLabelText("PDF 阅读器")).toHaveTextContent("登录后上传并阅读论文");
+    await waitFor(() => expect(screen.getByLabelText("用户名")).toHaveFocus());
     expect(listPapers).not.toHaveBeenCalled();
+    expect(getSettingsStatus).not.toHaveBeenCalled();
+  });
+
+  it("closes the login dialog with Escape and restores focus to its trigger", async () => {
+    vi.mocked(getCurrentUser).mockRejectedValue(new PaperwiseApiError(401, {
+      error: { code: "AUTH_REQUIRED", message: "Auth required", details: null },
+    }));
+    render(<App />);
+    await screen.findByRole("dialog", { name: "登录 PaperWise" });
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "登录 PaperWise" })).not.toBeInTheDocument();
+
+    const upload = screen.getByRole("button", { name: "上传 PDF" });
+    fireEvent.click(upload);
+    expect(await screen.findByRole("dialog", { name: "登录 PaperWise" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭登录" }));
+    await waitFor(() => expect(upload).toHaveFocus());
+  });
+
+  it("keeps keyboard focus inside the login dialog", async () => {
+    vi.mocked(getCurrentUser).mockRejectedValue(new PaperwiseApiError(401, {
+      error: { code: "AUTH_REQUIRED", message: "Auth required", details: null },
+    }));
+    render(<App />);
+    await screen.findByRole("dialog", { name: "登录 PaperWise" });
+
+    const close = screen.getByRole("button", { name: "关闭登录" });
+    close.focus();
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(screen.getByRole("button", { name: "登录进入" })).toHaveFocus();
   });
 
   it("loads papers after login succeeds", async () => {
@@ -126,6 +161,90 @@ describe("App", () => {
     expect(login).toHaveBeenCalledWith({ username: "admin", password: "password123" });
   });
 
+  it("resumes upload once after authentication without retaining a file", async () => {
+    vi.mocked(getCurrentUser).mockRejectedValue(new PaperwiseApiError(401, {
+      error: { code: "AUTH_REQUIRED", message: "Auth required", details: null },
+    }));
+    vi.mocked(listPapers).mockResolvedValue([]);
+    render(<App />);
+    await screen.findByRole("dialog", { name: "登录 PaperWise" });
+    fireEvent.click(screen.getByRole("button", { name: "关闭登录" }));
+
+    const input = screen.getByLabelText("选择 PDF 文件");
+    const inputClick = vi.spyOn(input, "click");
+    fireEvent.click(screen.getByRole("button", { name: "上传 PDF" }));
+    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "admin" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "登录进入" }));
+
+    await waitFor(() => expect(inputClick).toHaveBeenCalledTimes(1));
+    expect(uploadPaper).not.toHaveBeenCalled();
+  });
+
+  it("resumes settings once after authentication", async () => {
+    vi.mocked(getCurrentUser).mockRejectedValue(new PaperwiseApiError(401, {
+      error: { code: "AUTH_REQUIRED", message: "Auth required", details: null },
+    }));
+    vi.mocked(listPapers).mockResolvedValue([]);
+    render(<App />);
+    await screen.findByRole("dialog", { name: "登录 PaperWise" });
+    fireEvent.click(screen.getByRole("button", { name: "关闭登录" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "API 配置" }));
+    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "admin" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "登录进入" }));
+
+    expect(await screen.findByRole("dialog", { name: "模型设置" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "登录 PaperWise" })).not.toBeInTheDocument();
+  });
+
+  it("keeps an upload intent after failed login and consumes it after retry", async () => {
+    vi.mocked(getCurrentUser).mockRejectedValue(new PaperwiseApiError(401, {
+      error: { code: "AUTH_REQUIRED", message: "Auth required", details: null },
+    }));
+    vi.mocked(login).mockRejectedValueOnce(new Error("用户名或密码错误")).mockResolvedValueOnce(user);
+    vi.mocked(listPapers).mockResolvedValue([]);
+    render(<App />);
+    await screen.findByRole("dialog", { name: "登录 PaperWise" });
+    fireEvent.click(screen.getByRole("button", { name: "关闭登录" }));
+
+    const input = screen.getByLabelText("选择 PDF 文件");
+    const inputClick = vi.spyOn(input, "click");
+    fireEvent.click(screen.getByRole("button", { name: "上传 PDF" }));
+    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "admin" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "登录进入" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("用户名或密码错误");
+    expect(screen.getByLabelText("用户名")).toHaveValue("admin");
+    expect(inputClick).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "登录进入" }));
+    await waitFor(() => expect(inputClick).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not resume a cancelled upload intent during a later login", async () => {
+    vi.mocked(getCurrentUser).mockRejectedValue(new PaperwiseApiError(401, {
+      error: { code: "AUTH_REQUIRED", message: "Auth required", details: null },
+    }));
+    vi.mocked(listPapers).mockResolvedValue([]);
+    render(<App />);
+    await screen.findByRole("dialog", { name: "登录 PaperWise" });
+    fireEvent.click(screen.getByRole("button", { name: "关闭登录" }));
+
+    const input = screen.getByLabelText("选择 PDF 文件");
+    const inputClick = vi.spyOn(input, "click");
+    fireEvent.click(screen.getByRole("button", { name: "上传 PDF" }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭登录" }));
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "admin" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "password123" } });
+    fireEvent.click(screen.getByRole("button", { name: "登录进入" }));
+
+    await waitFor(() => expect(listPapers).toHaveBeenCalledTimes(1));
+    expect(inputClick).not.toHaveBeenCalled();
+  });
+
   it("clears the workspace on logout", async () => {
     vi.mocked(listPapers).mockResolvedValue([first]);
     render(<App />);
@@ -135,7 +254,44 @@ describe("App", () => {
 
     await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
     expect(await screen.findByRole("button", { name: "登录" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "登录 PaperWise" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("pdf-reader")).not.toBeInTheDocument();
+  });
+
+  it("clears user content and opens the dialog when a protected session expires", async () => {
+    vi.mocked(listPapers).mockResolvedValue([first]);
+    render(<App />);
+    expect(await screen.findByTestId("pdf-reader")).toHaveTextContent("first.pdf");
+
+    window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
+
+    expect(await screen.findByRole("dialog", { name: "登录 PaperWise" })).toHaveTextContent("登录已失效，请重新登录");
+    expect(screen.queryByTestId("pdf-reader")).not.toBeInTheDocument();
+    expect(screen.queryByText("first.pdf")).not.toBeInTheDocument();
+  });
+
+  it("ignores an upload response that arrives after logout", async () => {
+    let finishUpload: ((value: Awaited<ReturnType<typeof uploadPaper>>) => void) | undefined;
+    vi.mocked(listPapers).mockResolvedValue([]);
+    vi.mocked(uploadPaper).mockImplementation(() => new Promise((resolve) => { finishUpload = resolve; }));
+    render(<App />);
+    await waitFor(() => expect(listPapers).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("选择 PDF 文件"), {
+      target: { files: [new File(["pdf"], "late.pdf", { type: "application/pdf" })] },
+    });
+    await waitFor(() => expect(uploadPaper).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+    finishUpload?.({
+      paper: second,
+      task_id: "11111111-1111-4111-8111-111111111111",
+      deduplicated: false,
+    });
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "登录" })).toBeInTheDocument());
+    expect(screen.queryByTestId("pdf-reader")).not.toBeInTheDocument();
+    expect(listPapers).toHaveBeenCalledTimes(1);
   });
 
   it("restores the paper list and selects the most recent paper", async () => {

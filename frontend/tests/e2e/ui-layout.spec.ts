@@ -6,6 +6,109 @@ async function saveScreenshot(page: import("@playwright/test").Page, name: strin
   if (directory) await page.screenshot({ path: join(directory, name), fullPage: true });
 }
 
+const authRequiredBody = {
+  error: { code: "AUTH_REQUIRED", message: "Authentication is required", details: null },
+};
+
+async function mockVisitor(page: import("@playwright/test").Page) {
+  await page.route("**/api/auth/me", (route) => route.fulfill({
+    status: 401,
+    contentType: "application/json",
+    body: JSON.stringify(authRequiredBody),
+  }));
+}
+
+async function mockLogin(page: import("@playwright/test").Page) {
+  await page.route("**/api/auth/login", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      user_id: "11111111-1111-4111-8111-111111111111",
+      username: "admin",
+      role: "admin",
+      created_at: "2026-07-15T00:00:00Z",
+    }),
+  }));
+  await page.route("**/api/papers", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ items: [] }),
+  }));
+  await page.route("**/api/settings/status", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      text_model: { configured: false, base_url: null, model: null, source: null },
+      vision_model: { configured: false, base_url: null, model: null, source: null },
+    }),
+  }));
+}
+
+test("shows a useful visitor workspace without protected data requests", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockVisitor(page);
+  const protectedRequests: string[] = [];
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (pathname.startsWith("/api/") && !pathname.startsWith("/api/auth/")) {
+      protectedRequests.push(pathname);
+    }
+  });
+
+  await page.goto("/");
+
+  await expect(page.getByRole("dialog", { name: "登录 PaperWise" })).toBeVisible();
+  await expect(page.getByLabel("PDF 阅读器")).toContainText("登录后上传并阅读论文");
+  await expect(page.getByLabel("全局导航")).toBeVisible();
+  await expect(page.getByRole("link", { name: "使用指南" })).toHaveAttribute("href", "/tutorial.html");
+  expect(protectedRequests).toEqual([]);
+  await saveScreenshot(page, "paperwise-auth-visitor-desktop.png");
+
+  await page.getByRole("button", { name: "关闭登录" }).click();
+  await expect(page.getByRole("dialog", { name: "登录 PaperWise" })).toHaveCount(0);
+  await page.getByRole("button", { name: "上传 PDF" }).click();
+  await expect(page.getByRole("dialog", { name: "登录 PaperWise" })).toBeVisible();
+  expect(protectedRequests).toEqual([]);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await expect(page.getByRole("dialog", { name: "登录 PaperWise" })).toBeVisible();
+  await saveScreenshot(page, "paperwise-auth-visitor-mobile.png");
+});
+
+test("resumes the visitor upload with one file chooser after login", async ({ page }) => {
+  await mockVisitor(page);
+  await mockLogin(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "关闭登录" }).click();
+  await page.getByRole("button", { name: "上传 PDF" }).click();
+  await page.getByLabel("用户名").fill("admin");
+  await page.getByLabel("密码").fill("password123");
+
+  const fileChooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "登录进入" }).click();
+  await fileChooser;
+
+  await expect(page.getByRole("dialog", { name: "登录 PaperWise" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "退出登录" })).toBeVisible();
+});
+
+test("returns an expired session to a clean visitor workspace", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "退出登录" })).toBeVisible();
+  await page.route("**/api/settings/status", (route) => route.fulfill({
+    status: 401,
+    contentType: "application/json",
+    body: JSON.stringify(authRequiredBody),
+  }));
+
+  await page.getByRole("button", { name: "API 配置" }).click();
+
+  await expect(page.getByRole("dialog", { name: "登录 PaperWise" })).toContainText("登录已失效，请重新登录");
+  await expect(page.getByLabel("PDF 阅读器")).toContainText("登录后上传并阅读论文");
+  await expect(page.locator(".topbar-actions").getByRole("button", { name: "登录" })).toBeVisible();
+});
+
 test("desktop navigation hides from the edge and releases reader space", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");

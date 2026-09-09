@@ -52,14 +52,19 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 .app-shell { --navigation-width: 248px; width: 100%; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: var(--color-bg-app); }
 .app-shell.navigation-hidden { --navigation-width: 0px; }
 .auth-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--color-bg-app); }
-.auth-card { width: min(380px, 100%); display: grid; gap: 14px; padding: 24px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); box-shadow: 0 14px 36px rgb(33 66 136 / 10%); }
-.auth-brand { justify-content: center; font-size: 20px; }
-.auth-copy { margin: 0; color: var(--color-text-muted); font-size: 13px; line-height: 1.6; text-align: center; }
+.auth-overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 20px; background: rgb(29 39 58 / 36%); }
+.auth-dialog { width: min(400px, 100%); max-height: min(640px, calc(100dvh - 40px)); overflow: auto; display: grid; gap: 14px; padding: 22px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); box-shadow: var(--shadow-overlay); animation: auth-dialog-enter 160ms ease-out; }
+.auth-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.auth-brand { min-width: 0; font-size: 20px; }
+.auth-brand h2 { margin: 0; font-size: 20px; }
+.auth-copy { margin: 0; color: var(--color-text-muted); font-size: 13px; line-height: 1.6; }
+.auth-notice { padding: 9px 11px; border-left: 3px solid var(--color-warning); background: var(--color-warning-soft); color: #735333; font-size: 12px; }
 .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-muted); }
 .auth-tabs button { height: 34px; border: 0; border-radius: 4px; background: transparent; color: var(--color-text-muted); }
 .auth-tabs button.active { background: var(--color-surface); color: var(--color-primary); font-weight: 700; box-shadow: var(--shadow-card); }
-.auth-card label { display: grid; gap: 6px; color: var(--color-text-muted); font-size: 12px; }
-.auth-card input { height: 38px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: var(--color-text); }
+.auth-form { display: grid; gap: 14px; }
+.auth-form label { display: grid; gap: 6px; color: var(--color-text-muted); font-size: 12px; }
+.auth-form input { height: 38px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: var(--color-text); }
 .auth-submit { height: 40px; border: 1px solid var(--color-primary); border-radius: 6px; background: var(--color-primary); color: white; font-weight: 650; }
 .auth-submit:hover:not(:disabled) { background: var(--color-primary-hover); }
 .topbar {
@@ -253,12 +258,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes progress-slide { from { transform: translateX(-110%); } to { transform: translateX(240%); } }
 @keyframes result-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes auth-dialog-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 1200px) {
   .workspace { grid-template-columns: var(--navigation-width) minmax(0, 1fr) 360px; }
 }
 
 @media (max-width: 760px) {
+  .auth-overlay { place-items: end center; padding: 12px; }
+  .auth-dialog { width: 100%; max-height: calc(100dvh - 24px); padding: 18px; }
   .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 56%) minmax(0, 44%); }
   .workspace-navigation { position: fixed; z-index: 13; top: 56px; bottom: 0; left: 0; width: var(--navigation-width); box-shadow: 8px 0 24px rgb(33 66 136 / 12%); transition: width 180ms ease-out, visibility 0s linear 180ms; }
   .navigation-open .workspace-navigation { transition-delay: 0s; }
@@ -279,5 +287,5 @@ button:focus-visible, input:focus-visible, textarea:focus-visible {
   .navigation-menu button::before, .navigation-menu a::before, .paper-item, .message, .annotation-list article, .progress-fill { transition: none; }
   button:active:not(:disabled), .navigation-edge-toggle:hover, .navigation-edge-toggle:active:not(:disabled) { transform: none; }
   .upload-progress.indeterminate .progress-fill { animation: none; width: 100%; opacity: 0.55; }
-  .spin, .explanation-result { animation: none; }
+  .spin, .explanation-result, .auth-dialog { animation: none; }
 }

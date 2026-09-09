@@ -6,12 +6,14 @@ import {
   FileText,
   Library,
   LoaderCircle,
+  LogIn,
   LogOut,
   Search,
   Settings,
   Trash2,
   Upload,
   UserRound,
+  X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
@@ -33,6 +35,7 @@ import {
   type SettingsStatus,
   retryPaper,
   uploadPaper,
+  AUTH_REQUIRED_EVENT,
 } from "../api/client";
 import { PdfReader } from "../features/reader/PdfReader";
 import { ChatPanel } from "../features/chat/ChatPanel";
@@ -54,6 +57,7 @@ function statusLabel(status: Paper["status"]): string {
 }
 
 const NAVIGATION_STORAGE_KEY = "paperwise-navigation-open";
+type AuthIntent = "default" | "upload" | "settings";
 
 function initialNavigationOpen(): boolean {
   const stored = window.localStorage.getItem(NAVIGATION_STORAGE_KEY);
@@ -61,12 +65,49 @@ function initialNavigationOpen(): boolean {
   return typeof window.matchMedia !== "function" || !window.matchMedia("(max-width: 760px)").matches;
 }
 
-function AuthView({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => void }) {
+function AuthDialog({
+  notice,
+  onAuthenticated,
+  onClose,
+}: {
+  notice: string | null;
+  onAuthenticated: (user: AuthUser) => void;
+  onClose: () => void;
+}) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const usernameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    usernameRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+        "button:not(:disabled), input:not(:disabled)",
+      ) ?? []);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -89,27 +130,40 @@ function AuthView({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => vo
   };
 
   return (
-    <div className="auth-page">
-      <form className="auth-card" onSubmit={(event) => void submit(event)}>
-        <div className="brand auth-brand"><BookOpen size={24} /><span>PaperWise</span></div>
-        <p className="auth-copy">请先登录。首次公开部署时，可创建第一个管理员账号。</p>
+    <div className="auth-overlay">
+      <div
+        ref={dialogRef}
+        className="auth-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="auth-dialog-title"
+        aria-describedby="auth-dialog-copy"
+      >
+        <header className="auth-dialog-header">
+          <div className="brand auth-brand"><BookOpen size={22} /><h2 id="auth-dialog-title">登录 PaperWise</h2></div>
+          <button type="button" className="icon-button ghost" aria-label="关闭登录" title="关闭登录" onClick={onClose}><X size={18} /></button>
+        </header>
+        <p id="auth-dialog-copy" className="auth-copy">首次公开部署时，可创建第一个管理员账号。</p>
+        {notice && <div role="status" className="auth-notice">{notice}</div>}
         <div className="auth-tabs">
-          <button type="button" className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>登录</button>
-          <button type="button" className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>创建账号</button>
+          <button type="button" className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(null); }}>登录</button>
+          <button type="button" className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setError(null); }}>创建账号</button>
         </div>
-        {error && <div role="alert" className="error-banner">{error}</div>}
-        <label>
-          用户名
-          <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required minLength={3} />
-        </label>
-        <label>
-          密码
-          <input value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={8} type="password" />
-        </label>
-        <button type="submit" className="auth-submit" disabled={busy}>
-          {busy ? "处理中…" : mode === "login" ? "登录进入" : "创建并登录"}
-        </button>
-      </form>
+        <form className="auth-form" onSubmit={(event) => void submit(event)}>
+          {error && <div role="alert" className="error-banner">{error}</div>}
+          <label>
+            用户名
+            <input ref={usernameRef} value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required minLength={3} />
+          </label>
+          <label>
+            密码
+            <input value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={8} type="password" />
+          </label>
+          <button type="submit" className="auth-submit" disabled={busy}>
+            {busy ? "处理中…" : mode === "login" ? "登录进入" : "创建并登录"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
@@ -136,8 +190,14 @@ export function App() {
   const [targetPage, setTargetPage] = useState<number | null>(null);
   const [textSelection, setTextSelection] = useState<TextSelection | null>(null);
   const [regionSelection, setRegionSelection] = useState<RegionSelection | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [authIntent, setAuthIntent] = useState<AuthIntent>("default");
+  const authTriggerRef = useRef<HTMLElement | null>(null);
+  const workspaceGenerationRef = useRef(0);
 
   const clearWorkspace = () => {
+    workspaceGenerationRef.current += 1;
     setPapers([]);
     setSelectedId(null);
     setActiveTaskId(null);
@@ -150,17 +210,63 @@ export function App() {
     setNavigationView("library");
     setPaperQuery("");
     setSideTab("chat");
+    setUploading(false);
+    setDeletingId(null);
+    deletingIdRef.current = null;
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const expireSession = () => {
+    setCurrentUser(null);
+    clearWorkspace();
+    setError(null);
+    setAuthNotice("登录已失效，请重新登录。");
+    setAuthIntent("default");
+    setAuthDialogOpen(true);
+  };
+
+  const openAuthDialog = (intent: AuthIntent, trigger?: HTMLElement) => {
+    authTriggerRef.current = trigger ?? null;
+    setAuthIntent(intent);
+    setAuthNotice(null);
+    setAuthDialogOpen(true);
+  };
+
+  const closeAuthDialog = () => {
+    const trigger = authTriggerRef.current;
+    authTriggerRef.current = null;
+    setAuthDialogOpen(false);
+    setAuthNotice(null);
+    setAuthIntent("default");
+    window.setTimeout(() => trigger?.focus(), 0);
+  };
+
+  const handleAuthenticated = (user: AuthUser) => {
+    const intent = authIntent;
+    authTriggerRef.current = null;
+    setError(null);
+    setAuthNotice(null);
+    setAuthDialogOpen(false);
+    setAuthIntent("default");
+    setCurrentUser(user);
+    window.setTimeout(() => {
+      if (intent === "upload") fileInputRef.current?.click();
+      if (intent === "settings") setSettingsOpen(true);
+    }, 0);
   };
 
   const handleAuthError = (reason: unknown): boolean => {
     if (reason instanceof PaperwiseApiError && reason.code === "AUTH_REQUIRED") {
-      setCurrentUser(null);
-      clearWorkspace();
-      setError("登录已失效，请重新登录。");
+      expireSession();
       return true;
     }
     return false;
   };
+
+  useEffect(() => {
+    window.addEventListener(AUTH_REQUIRED_EVENT, expireSession);
+    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, expireSession);
+  }, []);
 
   useEffect(() => {
     setTextSelection(null);
@@ -179,8 +285,10 @@ export function App() {
         if (!(reason instanceof DOMException && reason.name === "AbortError")) {
           if (reason instanceof PaperwiseApiError && reason.code === "AUTH_REQUIRED") {
             setCurrentUser(null);
+            setAuthDialogOpen(true);
           } else {
             setError(reason instanceof Error ? reason.message : "登录状态检查失败");
+            setAuthDialogOpen(true);
           }
         }
       })
@@ -194,9 +302,11 @@ export function App() {
       return;
     }
     const controller = new AbortController();
+    const generation = workspaceGenerationRef.current;
     setLoading(true);
     void listPapers(controller.signal)
       .then((items) => {
+        if (generation !== workspaceGenerationRef.current) return;
         setPapers(items);
         setSelectedId((current) =>
           current && items.some((paper) => paper.paper_id === current)
@@ -237,14 +347,17 @@ export function App() {
       return;
     }
     const controller = new AbortController();
+    const generation = workspaceGenerationRef.current;
     const refresh = async () => {
       try {
         if (activeTaskId) {
           const task = await getTask(activeTaskId, controller.signal);
+          if (generation !== workspaceGenerationRef.current) return;
           setTaskProgress(task.progress);
           if (["succeeded", "failed"].includes(task.status)) setActiveTaskId(null);
         }
         const paper = await getPaper(selectedPaper.paper_id, controller.signal);
+        if (generation !== workspaceGenerationRef.current) return;
         setPapers((items) => items.map((item) => item.paper_id === paper.paper_id ? paper : item));
       } catch (reason) {
         if (
@@ -268,11 +381,14 @@ export function App() {
   }, [activeTaskId, selectedPaper?.paper_id, selectedPaper?.status]);
 
   const handleUpload = async (file: File) => {
+    const generation = workspaceGenerationRef.current;
     setUploading(true);
     setError(null);
     try {
       const result = await uploadPaper(file);
+      if (generation !== workspaceGenerationRef.current) return;
       const items = await listPapers();
+      if (generation !== workspaceGenerationRef.current) return;
       setPapers(items);
       setSelectedId(result.paper.paper_id);
       setActiveTaskId(result.task_id);
@@ -285,18 +401,23 @@ export function App() {
         );
       }
     } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (generation === workspaceGenerationRef.current) {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
     }
   };
 
   const handleRetry = async () => {
     if (!selectedPaper) return;
+    const generation = workspaceGenerationRef.current;
     setError(null);
     try {
       const result = await retryPaper(selectedPaper.paper_id);
+      if (generation !== workspaceGenerationRef.current) return;
       setActiveTaskId(result.task_id);
       const paper = await getPaper(selectedPaper.paper_id);
+      if (generation !== workspaceGenerationRef.current) return;
       setPapers((items) => items.map((item) => item.paper_id === paper.paper_id ? paper : item));
     } catch (reason) {
       if (!handleAuthError(reason)) {
@@ -309,6 +430,7 @@ export function App() {
     if (!window.confirm(`确定永久删除“${paper.filename}”吗？\n\n原始 PDF、问答、速读、笔记和截图都将删除，且无法恢复。`)) return;
     setError(null);
     setDeletingId(paper.paper_id);
+    const generation = workspaceGenerationRef.current;
     deletingIdRef.current = paper.paper_id;
     let deleted = false;
     try {
@@ -326,7 +448,7 @@ export function App() {
       deletingIdRef.current = null;
       setDeletingId(null);
     }
-    if (!deleted) return;
+    if (!deleted || generation !== workspaceGenerationRef.current) return;
     const remaining = papers.filter((item) => item.paper_id !== paper.paper_id);
     setPapers(remaining);
     if (selectedId === paper.paper_id) {
@@ -351,6 +473,9 @@ export function App() {
     }
     setCurrentUser(null);
     clearWorkspace();
+    setAuthDialogOpen(false);
+    setAuthNotice(null);
+    setAuthIntent("default");
   };
 
   if (!authChecked) {
@@ -361,15 +486,18 @@ export function App() {
     );
   }
 
-  if (!currentUser) {
-    return <AuthView onAuthenticated={(user) => { setError(null); setCurrentUser(user); }} />;
-  }
-
   return (
     <div className={`app-shell ${navigationOpen ? "navigation-open" : "navigation-hidden"}`}>
       <header className="topbar">
         <div className="brand"><BookOpen size={22} /><span>PaperWise</span></div>
-        <div className="topbar-actions"><div className="topbar-status" title={selectedPaper?.filename}>{selectedPaper?.filename ?? currentUser.username}</div><button type="button" className="icon-button ghost" title="退出登录" aria-label="退出登录" onClick={() => void handleLogout()}><LogOut size={18} /></button></div>
+        <div className="topbar-actions">
+          <div className="topbar-status" title={selectedPaper?.filename}>{selectedPaper?.filename ?? currentUser?.username ?? "访客模式"}</div>
+          {currentUser ? (
+            <button type="button" className="icon-button ghost" title="退出登录" aria-label="退出登录" onClick={() => void handleLogout()}><LogOut size={18} /></button>
+          ) : (
+            <button type="button" className="icon-button ghost" title="登录" aria-label="登录" onClick={(event) => openAuthDialog("default", event.currentTarget)}><LogIn size={18} /></button>
+          )}
+        </div>
       </header>
       <main className="workspace">
         <aside
@@ -389,13 +517,20 @@ export function App() {
               <button
                 type="button"
                 className={settingsOpen ? "active" : ""}
-                onClick={() => setSettingsOpen(true)}
+                onClick={(event) => currentUser ? setSettingsOpen(true) : openAuthDialog("settings", event.currentTarget)}
               ><Settings size={18} /><span>API 配置</span></button>
               <a href="/tutorial.html"><CircleHelp size={18} /><span>使用指南</span></a>
               <button
                 type="button"
                 className={navigationView === "account" && !settingsOpen ? "active" : ""}
-                onClick={() => { setSettingsOpen(false); setNavigationView("account"); }}
+                onClick={(event) => {
+                  if (!currentUser) {
+                    openAuthDialog("default", event.currentTarget);
+                    return;
+                  }
+                  setSettingsOpen(false);
+                  setNavigationView("account");
+                }}
               ><UserRound size={18} /><span>账号</span></button>
             </nav>
 
@@ -405,7 +540,7 @@ export function App() {
               <section className="navigation-view" aria-labelledby="library-title">
                 <div className="panel-heading compact">
                   <div><span className="eyebrow">LIBRARY</span><h1 id="library-title">论文库</h1></div>
-                  <button type="button" className="upload-button" onClick={() => fileInputRef.current?.click()} disabled={uploading} aria-label="上传 PDF">
+                  <button type="button" className="upload-button" onClick={(event) => currentUser ? fileInputRef.current?.click() : openAuthDialog("upload", event.currentTarget)} disabled={uploading} aria-label="上传 PDF">
                     {uploading ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />}
                     <span>{uploading ? "上传中" : "上传"}</span>
                   </button>
@@ -416,6 +551,10 @@ export function App() {
                     accept="application/pdf,.pdf"
                     aria-label="选择 PDF 文件"
                     onChange={(event) => {
+                      if (!currentUser) {
+                        event.currentTarget.value = "";
+                        return;
+                      }
                       const file = event.target.files?.[0];
                       if (file) void handleUpload(file);
                     }}
@@ -490,15 +629,15 @@ export function App() {
                     );
                   })}
                   {!loading && visiblePapers.length === 0 && (
-                    <p className="navigation-empty">{papers.length === 0 ? "尚未添加论文" : "没有匹配的论文"}</p>
+                    <p className="navigation-empty">{papers.length === 0 ? currentUser ? "尚未添加论文" : "登录后查看论文库" : "没有匹配的论文"}</p>
                   )}
                 </div>
               </section>
             ) : (
               <section className="navigation-view account-view" aria-labelledby="account-title">
                 <div className="account-avatar"><UserRound size={24} /></div>
-                <div><span className="eyebrow">ACCOUNT</span><h1 id="account-title">{currentUser.username}</h1></div>
-                <dl><div><dt>角色</dt><dd>{currentUser.role === "admin" ? "管理员" : currentUser.role}</dd></div><div><dt>状态</dt><dd>已登录</dd></div></dl>
+                <div><span className="eyebrow">ACCOUNT</span><h1 id="account-title">{currentUser?.username}</h1></div>
+                <dl><div><dt>角色</dt><dd>{currentUser?.role === "admin" ? "管理员" : currentUser?.role}</dd></div><div><dt>状态</dt><dd>已登录</dd></div></dl>
                 <button type="button" className="account-logout" aria-label="从账号退出登录" onClick={() => void handleLogout()}><LogOut size={16} />退出登录</button>
               </section>
             )}
@@ -528,7 +667,7 @@ export function App() {
           ) : (
             <div className="empty-reader">
               <FileText size={40} strokeWidth={1.5} />
-              <p>{loading ? "正在读取本地论文…" : "尚未添加论文"}</p>
+              <p>{loading ? "正在读取本地论文…" : currentUser ? "尚未添加论文" : "登录后上传并阅读论文"}</p>
             </div>
           )}
         </section>
@@ -547,6 +686,9 @@ export function App() {
         onClick={() => setNavigationOpen((open) => !open)}
       ><span>{navigationOpen ? <ChevronLeft size={15} /> : <ChevronRight size={15} />}</span></button>
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onStatusChange={setSettingsStatus} />}
+      {authDialogOpen && (
+        <AuthDialog notice={authNotice} onAuthenticated={handleAuthenticated} onClose={closeAuthDialog} />
+      )}
     </div>
   );
 }
